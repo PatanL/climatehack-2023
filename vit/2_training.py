@@ -1,4 +1,9 @@
-# %%
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[ ]:
+
+
 from datetime import datetime, time, timedelta
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -12,20 +17,28 @@ from torchinfo import summary
 import json
 plt.rcParams["figure.figsize"] = (20, 12)
 
-# %%
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# In[ ]:
+
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
 print(device)
 
-# %% [markdown]
+
 # ## Loading the data
 
-# %%
+# In[ ]:
+
+
 pv = pd.read_parquet("data/pv/2020/1.parquet").drop("generation_wh", axis=1)
 for i in range(2, 13):
     pv2 = pd.read_parquet(f"data/pv/2020/{i}.parquet").drop("generation_wh", axis=1)
     pv = pd.concat([pv, pv2], axis=0)
 
-# %%
+
+# In[ ]:
+
+
 hrv = xr.open_dataset(
     "data/satellite-hrv/2020/1.zarr.zip", engine="zarr", chunks="auto"
 )
@@ -35,11 +48,13 @@ for i in range(2, 13):
     )
     hrv = xr.concat((hrv, hrv2), dim="time")
 
-# %% [markdown]
+
 # As part of the challenge, you can make use of satellite imagery, numerical weather prediction and air quality forecast data in a `[128, 128]` region centred on each solar PV site. In order to help you out, we have pre-computed the indices corresponding to each solar PV site and included them in `indices.json`, which we can load directly. For more information, take a look at the [challenge page](https://doxaai.com/competition/climatehackai-2023).
 # 
 
-# %%
+# In[ ]:
+
+
 with open("indices.json") as f:
     site_locations = {
         data_source: {
@@ -49,7 +64,7 @@ with open("indices.json") as f:
         for data_source, locations in json.load(f).items()
     }
 
-# %% [markdown]
+
 # ### Defining a PyTorch Dataset
 # 
 # To get started, we will define a simple `IterableDataset` that shows how to slice into the PV and HRV data using `pandas` and `xarray`, respectively. You will have to modify this if you wish to incorporate non-HRV data, weather forecasts and air quality forecasts into your training regimen. If you have any questions, feel free to ask on the [ClimateHack.AI Community Discord server](https://discord.gg/HTTQ8AFjJp)!
@@ -58,7 +73,9 @@ with open("indices.json") as f:
 # 
 # There are many more advanced strategies you could implement to load data in training, particularly if you want to pre-prepare training batches in advance or use multiple workers to improve data loading times.
 
-# %%
+# In[ ]:
+
+
 class ChallengeDataset(IterableDataset):
     def __init__(self, pv, hrv, site_locations, sites=None, transform=None, min_date=None, max_date=None):
         self.pv = pv
@@ -126,25 +143,34 @@ class ChallengeDataset(IterableDataset):
                     hrv_features = self.transform(hrv_features)
                 yield site_features, hrv_features, site_targets
 
-# %% [markdown]
+
 # ## Train a model
 
-# %%
-BATCH_SIZE = 32
+# In[ ]:
+
+
+BATCH_SIZE = 64
 train_dataset = ChallengeDataset(pv, hrv, site_locations=site_locations, min_date=datetime(2020, 1, 1), max_date=datetime(2020, 12, 31))
 dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, pin_memory=True)
 print(f"train dataset len: {len(train_dataset)}")
 
-# %%
+
+# In[ ]:
+
+
 from submission.model import OurTransformer
 model = OurTransformer(image_size=128).to(device)
 criterion = nn.L1Loss()
 optimiser = optim.Adam(model.parameters(), lr=1e-3)
 summary(model, input_size=[(1, 12), (1, 12, 128, 128)])
 
-# %%
+
+# In[ ]:
+
+
 EPOCHS = 10
 MODEL_KEY="ViT-Tiny-Full"
+print(f"Training model key {MODEL_KEY}")
 from tqdm import tqdm
 for epoch in range(EPOCHS):
     model.train()
@@ -153,12 +179,12 @@ for epoch in range(EPOCHS):
     count = 0
     for i, (pv_features, hrv_features, pv_targets) in (pbar := tqdm(enumerate(dataloader), total=len(dataloader))):
         optimiser.zero_grad()
-
-        predictions = model(
-            pv_features.to(device, dtype=torch.float),
-            hrv_features.to(device, dtype=torch.float),
-        )
-        loss = criterion(predictions, pv_targets.to(device, dtype=torch.float))
+        with torch.autocast(device_type=device):
+            predictions = model(
+                pv_features.to(device, dtype=torch.float),
+                hrv_features.to(device, dtype=torch.float),
+            )
+            loss = criterion(predictions, pv_targets.to(device, dtype=torch.float))
         loss.backward()
 
         optimiser.step()
@@ -177,11 +203,16 @@ for epoch in range(EPOCHS):
     torch.save(model.state_dict(), f"submission/{MODEL_KEY}-ep{epoch + 1}.pt")
     print("Saved model!")
 
-# %%
+
+# In[ ]:
+
+
 # Save your model
 torch.save(model.state_dict(), "submission/model.pt")
 
-# %%
+
+# In[ ]:
+
 
 
 

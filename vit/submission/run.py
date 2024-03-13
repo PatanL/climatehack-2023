@@ -9,7 +9,7 @@ import torch
 from competition import BaseEvaluator
 from model import OurTransformer as Model
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 class Evaluator(BaseEvaluator):
     def setup(self) -> None:
@@ -36,10 +36,11 @@ class Evaluator(BaseEvaluator):
             # Select the variables you wish to use here!
             for pv, hrv in self.batch(features, variables=["pv", "hrv"], batch_size=32):
                 # Produce solar PV predictions for this batch
-                yield self.model(
-                    torch.from_numpy(pv).to(device),
-                    torch.from_numpy(hrv).to(device),
-                ).cpu()
+                with torch.autocast(device_type=device):
+                    yield self.model(
+                        torch.from_numpy(pv).to(device),
+                        torch.from_numpy(hrv).to(device),
+                    ).cpu()
 
 
 if __name__ == "__main__":
