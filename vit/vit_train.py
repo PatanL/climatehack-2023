@@ -24,7 +24,6 @@ pv = pd.read_parquet("data/pv/2020/1.parquet").drop("generation_wh", axis=1)
 for i in range(2, 13):
     pv2 = pd.read_parquet(f"data/pv/2020/{i}.parquet").drop("generation_wh", axis=1)
     pv = pd.concat([pv, pv2], axis=0)
-pv
 
 # %%
 hrv = xr.open_dataset(
@@ -35,7 +34,6 @@ for i in range(2, 13):
         f"data/satellite-hrv/2020/{i}.zarr.zip", engine="zarr", chunks="auto"
     )
     hrv = xr.concat((hrv, hrv2), dim="time")
-hrv
 
 # %% [markdown]
 # As part of the challenge, you can make use of satellite imagery, numerical weather prediction and air quality forecast data in a `[128, 128]` region centred on each solar PV site. In order to help you out, we have pre-computed the indices corresponding to each solar PV site and included them in `indices.json`, which we can load directly. For more information, take a look at the [challenge page](https://doxaai.com/competition/climatehackai-2023).
@@ -62,12 +60,15 @@ with open("indices.json") as f:
 
 # %%
 class ChallengeDataset(IterableDataset):
-    def __init__(self, pv, hrv, site_locations, sites=None, transform=None):
+    def __init__(self, pv, hrv, site_locations, sites=None, transform=None, min_date=None, max_date=None):
         self.pv = pv
         self.hrv = hrv
         self._site_locations = site_locations
         self.transform=transform
         self._sites = sites if sites else list(site_locations["hrv"].keys())
+        assert (min_date and max_date), "Did not provide a min and/or max date range."
+        self.min_date = min_date
+        self.max_date = max_date
     def __len__(self):
         i = 0
         for _ in self._get_image_times():
@@ -75,12 +76,11 @@ class ChallengeDataset(IterableDataset):
         i *= len(self._sites)
         return i
     def _get_image_times(self):
-        min_date = datetime(2020, 1, 1)
-        max_date = datetime(2020, 12, 31)
+        min_date = self.min_date
+        max_date = self.max_date
 
         start_time = time(8)
         end_time = time(17)
-
         date = min_date
         while date <= max_date:
             current_time = datetime.combine(date, start_time)
@@ -131,10 +131,9 @@ class ChallengeDataset(IterableDataset):
 
 # %%
 BATCH_SIZE = 32
-from torchvision import transforms
-dataset = ChallengeDataset(pv, hrv, site_locations=site_locations)
-dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, pin_memory=True)
-print(f"dataset len: {len(dataset)}")
+train_dataset = ChallengeDataset(pv, hrv, site_locations=site_locations, min_date=datetime(2020, 1, 1), max_date=datetime(2020, 12, 31))
+dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, pin_memory=True)
+print(f"train dataset len: {len(train_dataset)}")
 
 # %%
 from submission.model import OurTransformer
@@ -181,5 +180,8 @@ for epoch in range(EPOCHS):
 # %%
 # Save your model
 torch.save(model.state_dict(), "submission/model.pt")
+
+# %%
+
 
 
