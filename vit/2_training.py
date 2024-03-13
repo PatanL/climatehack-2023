@@ -39,7 +39,8 @@ for i in range(2, 13):
 # In[ ]:
 
 
-hrv = xr.open_mfdataset("data/satellite-hrv/2020/*.zarr.zip", engine="zarr", chunks="auto", parallel=True)
+BATCH_SIZE = 256
+hrv = xr.open_mfdataset("data/satellite-hrv/2020/*.zarr.zip", engine="zarr", chunks={"time": BATCH_SIZE * 2}, parallel=True)
 
 
 # As part of the challenge, you can make use of satellite imagery, numerical weather prediction and air quality forecast data in a `[128, 128]` region centred on each solar PV site. In order to help you out, we have pre-computed the indices corresponding to each solar PV site and included them in `indices.json`, which we can load directly. For more information, take a look at the [challenge page](https://doxaai.com/competition/climatehackai-2023).
@@ -117,7 +118,7 @@ class ChallengeDataset(IterableDataset):
     def __iter__(self):
         for time in self._get_image_times():
             first_hour = slice(str(time), str(time + timedelta(minutes=55)))
-
+            day_of_year = ((time - datetime(time.year, 1, 1)).days + 1)/365
             pv_features = pv.xs(first_hour, drop_level=False)  # type: ignore
             pv_targets = pv.xs(
                 slice(  # type: ignore
@@ -146,7 +147,7 @@ class ChallengeDataset(IterableDataset):
                     continue
                 if self.transform:
                     hrv_features = self.transform(hrv_features)
-                yield site_features, hrv_features, site_targets
+                yield day_of_year, site_features, hrv_features, site_targets
 
 
 # ## Train a model
@@ -154,7 +155,6 @@ class ChallengeDataset(IterableDataset):
 # In[ ]:
 
 
-BATCH_SIZE = 256
 train_dataset = ChallengeDataset(pv, hrv, site_locations=site_locations, min_date=datetime(2020, 1, 1), max_date=datetime(2020, 12, 31))
 dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, pin_memory=True)
 print(f"train dataset len: {len(train_dataset)}")
@@ -167,7 +167,7 @@ from submission.model import OurTransformer
 model = OurTransformer(image_size=128).to(device)
 criterion = nn.L1Loss()
 optimiser = optim.Adam(model.parameters(), lr=1e-3)
-summary(model, input_size=[(1, 12), (1, 12, 128, 128)])
+summary(model, input_size=[(1, 12), (1, 12, 128, 128), (1)])
 
 
 # In[ ]:
@@ -182,12 +182,13 @@ for epoch in range(EPOCHS):
 
     running_loss = 0.0
     count = 0
-    for i, (pv_features, hrv_features, pv_targets) in (pbar := tqdm(enumerate(dataloader), total=len(dataloader))):
+    for i, (dr, pv_features, hrv_features, pv_targets) in (pbar := tqdm(enumerate(dataloader), total=len(dataloader))):
         optimiser.zero_grad()
         with torch.autocast(device_type=device):
             predictions = model(
-                pv_features.to(device, dtype=torch.float),
-                hrv_features.to(device, dtype=torch.float),
+                pv_features.to(device),
+                hrv_features.to(device),
+                dr.to(device)
             )
             loss = criterion(predictions, pv_targets.to(device, dtype=torch.float))
         loss.backward()

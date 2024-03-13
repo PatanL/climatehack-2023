@@ -593,7 +593,7 @@ class OurTransformer(VisionTransformer):
         self.intermediate_size = intermediate_size
         self.heads = nn.Identity()
         self.mlp = nn.Sequential(
-            nn.Linear(self.hidden_dim + self.pv_len, self.intermediate_size),
+            nn.Linear(self.hidden_dim + self.pv_len + 1, self.intermediate_size),
             nn.Mish(),
             nn.Linear(self.intermediate_size, 48)
         )
@@ -601,7 +601,8 @@ class OurTransformer(VisionTransformer):
         # state_dict = weights.get_state_dict(progress=True, check_hash=True)
         # state_dict = {k: v for k, v in state_dict.items() if k.startswith('encoder.layers') or k == 'class_token'}
         # self.load_state_dict(state_dict, strict=False)
-    def forward(self, pv: torch.Tensor, x: torch.Tensor):
+    def forward(self, pv: torch.Tensor, x: torch.Tensor, day: torch.Tensor):
+        day = day.unsqueeze(1)
         # Reshape and permute the input tensor
         x = self._process_input(x)
         n = x.shape[0]
@@ -611,6 +612,6 @@ class OurTransformer(VisionTransformer):
         x = torch.cat([batch_class_token, x], dim=1)
         x = self.encoder(x)
         x = x[:, 0]
-        x = torch.concat((x, pv), 1)
+        x = torch.concat((x, pv, day), 1)
 
         return self.mlp(x)
