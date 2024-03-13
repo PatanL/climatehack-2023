@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[ ]:
 
 
 from datetime import datetime, time, timedelta
@@ -18,7 +18,7 @@ import json
 plt.rcParams["figure.figsize"] = (20, 12)
 
 
-# In[2]:
+# In[ ]:
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -27,7 +27,7 @@ print(device)
 
 # ## Loading the data
 
-# In[3]:
+# In[ ]:
 
 
 pv = pd.read_parquet("data/pv/2020/1.parquet").drop("generation_wh", axis=1)
@@ -36,23 +36,16 @@ for i in range(2, 13):
     pv = pd.concat([pv, pv2], axis=0)
 
 
-# In[4]:
+# In[ ]:
 
 
-hrv = xr.open_dataset(
-    "data/satellite-hrv/2020/1.zarr.zip", engine="zarr", chunks="auto"
-)
-for i in range(2, 13):
-    hrv2 = xr.open_dataset(
-        f"data/satellite-hrv/2020/{i}.zarr.zip", engine="zarr", chunks="auto"
-    )
-    hrv = xr.concat((hrv, hrv2), dim="time")
+hrv = xr.open_mfdataset("data/satellite-hrv/2020/*.zarr.zip", engine="zarr", chunks="auto", parallel=True)
 
 
 # As part of the challenge, you can make use of satellite imagery, numerical weather prediction and air quality forecast data in a `[128, 128]` region centred on each solar PV site. In order to help you out, we have pre-computed the indices corresponding to each solar PV site and included them in `indices.json`, which we can load directly. For more information, take a look at the [challenge page](https://doxaai.com/competition/climatehackai-2023).
 # 
 
-# In[5]:
+# In[ ]:
 
 
 with open("indices.json") as f:
@@ -73,9 +66,23 @@ with open("indices.json") as f:
 # 
 # There are many more advanced strategies you could implement to load data in training, particularly if you want to pre-prepare training batches in advance or use multiple workers to improve data loading times.
 
-# In[6]:
+# In[ ]:
 
 
+month_to_times = {
+    1: (time(8), time(16)),
+    2: (time(8), time(17)),
+    3: (time(7), time(18)),
+    4: (time(7), time(19)),
+    5: (time(6), time(20)),
+    6: (time(5), time(20)),
+    7: (time(5), time(20)),
+    8: (time(6), time(20)),
+    9: (time(7), time(19)),
+    10: (time(7), time(18)),
+    11: (time(7), time(16)),
+    12: (time(8), time(16))
+}
 class ChallengeDataset(IterableDataset):
     def __init__(self, pv, hrv, site_locations, sites=None, transform=None, min_date=None, max_date=None):
         self.pv = pv
@@ -95,11 +102,9 @@ class ChallengeDataset(IterableDataset):
     def _get_image_times(self):
         min_date = self.min_date
         max_date = self.max_date
-
-        start_time = time(8)
-        end_time = time(17)
         date = min_date
         while date <= max_date:
+            start_time, end_time = month_to_times[date.month]
             current_time = datetime.combine(date, start_time)
             while current_time.time() < end_time:
                 if current_time:
@@ -146,16 +151,16 @@ class ChallengeDataset(IterableDataset):
 
 # ## Train a model
 
-# In[7]:
+# In[ ]:
 
 
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 train_dataset = ChallengeDataset(pv, hrv, site_locations=site_locations, min_date=datetime(2020, 1, 1), max_date=datetime(2020, 12, 31))
 dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, pin_memory=True)
 print(f"train dataset len: {len(train_dataset)}")
 
 
-# In[8]:
+# In[ ]:
 
 
 from submission.model import OurTransformer
@@ -165,10 +170,10 @@ optimiser = optim.Adam(model.parameters(), lr=1e-3)
 summary(model, input_size=[(1, 12), (1, 12, 128, 128)])
 
 
-# In[9]:
+# In[ ]:
 
 
-EPOCHS = 10
+EPOCHS = 100
 MODEL_KEY="ViT-B32-2106.10270-Full-NoWeather"
 print(f"Training model key {MODEL_KEY}")
 from tqdm import tqdm
