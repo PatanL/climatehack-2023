@@ -581,9 +581,9 @@ class OurTransformer(VisionTransformer):
     def __init__(self, image_size = 128, hidden_dim=768, pv_len=12, intermediate_size = 384, **kwargs):
         super(OurTransformer, self).__init__(
             image_size=image_size,
-            patch_size=16,
-            num_layers=8,
-            num_heads=8,
+            patch_size=32,
+            num_layers=12,
+            num_heads=12,
             hidden_dim=hidden_dim,
             mlp_dim=3072, # unused now basically
             **kwargs,
@@ -594,13 +594,13 @@ class OurTransformer(VisionTransformer):
         self.heads = nn.Identity()
         self.mlp = nn.Sequential(
             nn.Linear(self.hidden_dim + self.pv_len, self.intermediate_size),
-            nn.Tanh(),
+            nn.Mish(),
             nn.Linear(self.intermediate_size, 48)
         )
-        weights = ViT_B_16_Weights.verify(ViT_B_16_Weights.DEFAULT)
-        state_dict = weights.get_state_dict(progress=True, check_hash=True)
-        state_dict = {k: v for k, v in state_dict.items() if k.startswith('encoder.layers') or k == 'class_token'}
-        self.load_state_dict(state_dict, strict=False)
+        # weights = ViT_B_16_Weights.verify(ViT_B_16_Weights.DEFAULT)
+        # state_dict = weights.get_state_dict(progress=True, check_hash=True)
+        # state_dict = {k: v for k, v in state_dict.items() if k.startswith('encoder.layers') or k == 'class_token'}
+        # self.load_state_dict(state_dict, strict=False)
     def forward(self, pv: torch.Tensor, x: torch.Tensor):
         # Reshape and permute the input tensor
         x = self._process_input(x)

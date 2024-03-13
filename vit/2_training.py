@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# In[1]:
 
 
 from datetime import datetime, time, timedelta
@@ -18,7 +18,7 @@ import json
 plt.rcParams["figure.figsize"] = (20, 12)
 
 
-# In[ ]:
+# In[2]:
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -27,7 +27,7 @@ print(device)
 
 # ## Loading the data
 
-# In[ ]:
+# In[3]:
 
 
 pv = pd.read_parquet("data/pv/2020/1.parquet").drop("generation_wh", axis=1)
@@ -36,7 +36,7 @@ for i in range(2, 13):
     pv = pd.concat([pv, pv2], axis=0)
 
 
-# In[ ]:
+# In[4]:
 
 
 hrv = xr.open_dataset(
@@ -52,7 +52,7 @@ for i in range(2, 13):
 # As part of the challenge, you can make use of satellite imagery, numerical weather prediction and air quality forecast data in a `[128, 128]` region centred on each solar PV site. In order to help you out, we have pre-computed the indices corresponding to each solar PV site and included them in `indices.json`, which we can load directly. For more information, take a look at the [challenge page](https://doxaai.com/competition/climatehackai-2023).
 # 
 
-# In[ ]:
+# In[5]:
 
 
 with open("indices.json") as f:
@@ -73,7 +73,7 @@ with open("indices.json") as f:
 # 
 # There are many more advanced strategies you could implement to load data in training, particularly if you want to pre-prepare training batches in advance or use multiple workers to improve data loading times.
 
-# In[ ]:
+# In[6]:
 
 
 class ChallengeDataset(IterableDataset):
@@ -146,16 +146,16 @@ class ChallengeDataset(IterableDataset):
 
 # ## Train a model
 
-# In[ ]:
+# In[7]:
 
 
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 train_dataset = ChallengeDataset(pv, hrv, site_locations=site_locations, min_date=datetime(2020, 1, 1), max_date=datetime(2020, 12, 31))
 dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, pin_memory=True)
 print(f"train dataset len: {len(train_dataset)}")
 
 
-# In[ ]:
+# In[8]:
 
 
 from submission.model import OurTransformer
@@ -165,11 +165,11 @@ optimiser = optim.Adam(model.parameters(), lr=1e-3)
 summary(model, input_size=[(1, 12), (1, 12, 128, 128)])
 
 
-# In[ ]:
+# In[9]:
 
 
 EPOCHS = 10
-MODEL_KEY="ViT-Tiny-Full"
+MODEL_KEY="ViT-B32-2106.10270-Full-NoWeather"
 print(f"Training model key {MODEL_KEY}")
 from tqdm import tqdm
 for epoch in range(EPOCHS):

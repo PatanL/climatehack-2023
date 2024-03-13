@@ -16,7 +16,7 @@ class Evaluator(BaseEvaluator):
         """Sets up anything required for evaluation, e.g. loading a model."""
 
         self.model = Model().to(device)
-        self.model.load_state_dict(torch.load("model.pt", map_location=device))
+        self.model.load_state_dict(torch.load("/home/dsingh/source/devksingh4/climatehack-2023/vit/submission/ViT-B32-2106.10270-Full-ep1-half.pt", map_location=device))
         self.model.eval()
 
     def predict(self, features: h5py.File):
