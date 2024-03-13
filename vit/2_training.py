@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# In[1]:
 
 
 from datetime import datetime, time, timedelta
@@ -16,9 +16,11 @@ from torch.utils.data import DataLoader, IterableDataset
 from torchinfo import summary
 import json
 plt.rcParams["figure.figsize"] = (20, 12)
+# %load_ext autoreload
+# %autoreload 2
 
 
-# In[ ]:
+# In[2]:
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -27,7 +29,7 @@ print(device)
 
 # ## Loading the data
 
-# In[ ]:
+# In[3]:
 
 
 pv = pd.read_parquet("data/pv/2020/1.parquet").drop("generation_wh", axis=1)
@@ -36,7 +38,7 @@ for i in range(2, 13):
     pv = pd.concat([pv, pv2], axis=0)
 
 
-# In[ ]:
+# In[4]:
 
 
 BATCH_SIZE = 256
@@ -46,7 +48,7 @@ hrv = xr.open_mfdataset("data/satellite-hrv/2020/*.zarr.zip", engine="zarr", chu
 # As part of the challenge, you can make use of satellite imagery, numerical weather prediction and air quality forecast data in a `[128, 128]` region centred on each solar PV site. In order to help you out, we have pre-computed the indices corresponding to each solar PV site and included them in `indices.json`, which we can load directly. For more information, take a look at the [challenge page](https://doxaai.com/competition/climatehackai-2023).
 # 
 
-# In[ ]:
+# In[5]:
 
 
 with open("indices.json") as f:
@@ -67,7 +69,7 @@ with open("indices.json") as f:
 # 
 # There are many more advanced strategies you could implement to load data in training, particularly if you want to pre-prepare training batches in advance or use multiple workers to improve data loading times.
 
-# In[ ]:
+# In[6]:
 
 
 month_to_times = {
@@ -152,7 +154,7 @@ class ChallengeDataset(IterableDataset):
 
 # ## Train a model
 
-# In[ ]:
+# In[7]:
 
 
 train_dataset = ChallengeDataset(pv, hrv, site_locations=site_locations, min_date=datetime(2020, 1, 1), max_date=datetime(2020, 12, 31))
@@ -160,17 +162,17 @@ dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, pin_memory=True)
 print(f"train dataset len: {len(train_dataset)}")
 
 
-# In[ ]:
+# In[8]:
 
 
 from submission.model import OurTransformer
 model = OurTransformer(image_size=128).to(device)
 criterion = nn.L1Loss()
 optimiser = optim.Adam(model.parameters(), lr=1e-3)
-summary(model, input_size=[(1, 12), (1, 12, 128, 128), (1)])
+summary(model, input_size=[(1, 12), (1, 12, 128, 128), (1,)])
 
 
-# In[ ]:
+# In[10]:
 
 
 EPOCHS = 100
@@ -186,9 +188,9 @@ for epoch in range(EPOCHS):
         optimiser.zero_grad()
         with torch.autocast(device_type=device):
             predictions = model(
-                pv_features.to(device),
-                hrv_features.to(device),
-                dr.to(device)
+                pv_features.to(device,dtype=torch.float),
+                hrv_features.to(device,dtype=torch.float),
+                dr.to(device, dtype=torch.float)
             )
             loss = criterion(predictions, pv_targets.to(device, dtype=torch.float))
         loss.backward()
@@ -199,7 +201,7 @@ for epoch in range(EPOCHS):
         running_loss += float(loss) * size
         count += size
 
-        if i % 100 == 99:
+        if i % 50 == 49:
             pbar.set_description(f"Epoch {epoch + 1}, {i + 1}: {running_loss / count}")
         if i == int(len(dataloader) * 0.5):
             print("Saving halfway-point model...")
