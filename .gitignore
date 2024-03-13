@@ -1,6 +1,6 @@
-data/data/
-data/indices.json
-data/submission/*.pt
+vit/data/
+vit/indices.json
+vit/submission/*.pt
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
