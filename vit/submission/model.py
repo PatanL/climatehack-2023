@@ -651,17 +651,20 @@ class OurResnet2(torch.nn.Module):
         self.intermediate_size = intermediate_size  
         concat_embed_size = 512 * 2 + 12
         num_periods = 48
-        model_dim = 512
-        num_heads = 4
-        num_encoder_layers = 4
-        num_decoder_layers = 4
-        # self.transformer = SimpleTransformer(concat_embed_size, num_periods, model_dim, num_heads, num_encoder_layers, num_decoder_layers)
+        # model_dim = 512
+        # num_heads = 4
+        # num_encoder_layers = 4
+        # num_decoder_layers = 4
+        # elf.transformer = SimpleTransformer(concat_embed_size, num_periods, model_dim, num_heads, num_encoder_layers, num_decoder_layers)
         self.mlp = nn.Sequential(
             nn.Linear(concat_embed_size, 512),
             nn.Mish(),
             nn.Linear(512, num_periods)
         )
     def forward(self, pv, x, nwp):
+        # pv is the pv data [batch_size, samples]
+        # x is the hrv sat data [batch_size, 12, 128, 128]
+        # nwp is the stacked nwp data [batch_size, 10, 6, 128, 128]
         x = torch.flatten(self.resnet1(x), 1)
         y = torch.flatten(self.resnet2(nwp), 1)
         x = torch.concat((x, y, pv), 1)

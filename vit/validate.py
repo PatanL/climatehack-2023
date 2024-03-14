@@ -8,7 +8,7 @@ from submission.run import Evaluator
 DATA_PATH = "data/validation/data.hdf5"
 
 
-def main():
+def main(model):
     # Load the data (combined features & targets)
     try:
         data = h5py.File(DATA_PATH, "r")
@@ -22,7 +22,7 @@ def main():
 
     # Make predictions on the data
     try:
-        evaluator = Evaluator()
+        evaluator = Evaluator(model)
 
         predictions = []
         for batch in evaluator.predict(features=data):
@@ -37,4 +37,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(None)

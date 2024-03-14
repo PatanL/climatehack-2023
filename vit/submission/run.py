@@ -14,11 +14,14 @@ import numpy as np
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 class Evaluator(BaseEvaluator):
-    def setup(self) -> None:
+    def setup(self, model = None) -> None:
         """Sets up anything required for evaluation, e.g. loading a model."""
-
-        self.model = Model().to(device)
-        self.model.load_state_dict(torch.load("OurResnetCombo-Full-NoWeather-ep5.pt", map_location=device))
+        super(Evaluator, self).__init__()
+        if not model:
+            self.model = Model().to(device)
+            self.model.load_state_dict(torch.load("OurResnetCombo-Full-NoWeather-ep12.pt", map_location=device))
+        else:
+            self.model = model
         self.model.eval()
 
     def predict(self, features: h5py.File):

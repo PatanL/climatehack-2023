@@ -7,7 +7,7 @@ import numpy as np
 
 
 class BaseEvaluator:
-    def __init__(self) -> None:
+    def __init__(self, model) -> None:
         self.setup()
 
     def setup(self) -> None:

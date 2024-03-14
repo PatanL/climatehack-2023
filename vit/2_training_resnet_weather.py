@@ -43,6 +43,7 @@ print(f"train dataset len: {len(dataset)}")
 
 from submission.model import OurResnet2
 model = OurResnet2(image_size=128).to(device)
+model.load_state_dict(torch.load("submission/OurResnetCombo-Full-NoWeather-ep12.pt", map_location=device))
 criterion = nn.L1Loss()
 optimiser = optim.Adam(model.parameters(), lr=1e-3)
 summary(model, input_size=[(1, 12), (1, 12, 1, 128, 128), (1, 6, 10, 128, 128)])
@@ -56,7 +57,7 @@ summary(model, input_size=[(1, 12), (1, 12, 1, 128, 128), (1, 6, 10, 128, 128)])
 
 
 EPOCHS = 100
-MODEL_KEY="OurResnetCombo-Full-NoWeather"
+MODEL_KEY="OurResnetCombo-Full-Weather"
 print(f"Training model key {MODEL_KEY}")
 from tqdm import tqdm
 for epoch in range(EPOCHS):

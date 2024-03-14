@@ -206,17 +206,17 @@ def process_data(sat_type):
             for i, set_type, data in tqdm(worker([(year, month) for year in range(2020, 2021) for month in range(1, 13)], sat_type)):
                 # (pv, sat, nwp, extra, y) = data
                 if set_type == "train":
-                    f_pv.create_dataset(f'data_{i}', data=data[0])
-                    f_sat.create_dataset(f'data_{i}', data=data[1])
-                    f_nwp.create_dataset(f'data_{i}', data=data[2])
-                    f_extra.create_dataset(f'data_{i}', data=data[3])
+                    f_pv.create_dataset(f'data_{i}', data=data[0], compression="lzf")
+                    f_sat.create_dataset(f'data_{i}', data=data[1], compression="lzf")
+                    f_nwp.create_dataset(f'data_{i}', data=data[2], compression="lzf")
+                    f_extra.create_dataset(f'data_{i}', data=data[3], compression="lzf")
                     f_y.create_dataset(f'data_{i}', data=data[4])
                 else:                    
-                    f_pv_val.create_dataset(f'data_{i}', data=data[0])
-                    f_sat_val.create_dataset(f'data_{i}', data=data[1])
-                    f_nwp_val.create_dataset(f'data_{i}', data=data[2])
-                    f_extra_val.create_dataset(f'data_{i}', data=data[3])
-                    f_y_val.create_dataset(f'data_{i}', data=data[4])
+                    f_pv_val.create_dataset(f'data_{i}', data=data[0], compression="lzf")
+                    f_sat_val.create_dataset(f'data_{i}', data=data[1], compression="lzf")
+                    f_nwp_val.create_dataset(f'data_{i}', data=data[2], compression="lzf")
+                    f_extra_val.create_dataset(f'data_{i}', data=data[3], compression="lzf")
+                    f_y_val.create_dataset(f'data_{i}', data=data[4], compression="lzf")
 
 NWP_FEATURES = ["t_500", "clcl", "alb_rad", "tot_prec", "ww", "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000"]
 # NWP_FEATURES = ["t_500", "clct", "alb_rad", "tot_prec", "aswdifd_s"]
