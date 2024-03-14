@@ -15,7 +15,7 @@ class HDF5Dataset(Dataset):
             self.length = len(f['pv'].keys())
 
     def __len__(self):
-        return self.length
+        return self.length - 1
 
     def __getitem__(self, idx):
         # Open the file each time to ensure lazy loading

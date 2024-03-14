@@ -578,6 +578,48 @@ def interpolate_embeddings(
 
 ## begin our actual model
 
+class SimpleTransformer(torch.nn.Module):
+    def __init__(self, concat_embed_size, num_periods, model_dim, num_heads, num_encoder_layers, num_decoder_layers):
+        super(SimpleTransformer, self).__init__()
+        
+        self.model_dim = model_dim
+        self.num_periods = num_periods
+        
+        # Input linear layer to match the model dimension
+        self.input_linear = nn.Linear(concat_embed_size, model_dim)
+        
+        # Transformer
+        self.transformer = nn.Transformer(d_model=model_dim, nhead=num_heads,
+                                          num_encoder_layers=num_encoder_layers,
+                                          num_decoder_layers=num_decoder_layers)
+                                          
+        # Output linear layer to transform to the desired output shape
+        self.output_linear = nn.Linear(model_dim, 1)  # Assuming a single feature per period
+        
+        # Positional Encoding for decoder input
+        self.positional_encoding = nn.Parameter(torch.randn(1, num_periods, model_dim), requires_grad=True)
+
+    def forward(self, src):
+        # src shape: [batch_size, seq_length=1, concat_embed_size]
+        batch_size = src.size(0)
+        
+        # Process input
+        src = self.input_linear(src)  # [batch_size, seq_length=1, model_dim]
+        src = src.permute(1, 0, 2)  # Transformer expects [seq_length, batch_size, model_dim]
+        
+        # Prepare decoder input: positional encodings
+        decoder_input = self.positional_encoding.repeat(batch_size, 1, 1)  # [batch_size, num_periods, model_dim]
+        decoder_input = decoder_input.permute(1, 0, 2)  # To [num_periods, batch_size, model_dim]
+        
+        # Transformer forward pass
+        transformer_output = self.transformer(src, decoder_input)
+        
+        # Transform output to the desired shape
+        output = self.output_linear(transformer_output)
+        output = output.permute(1, 0, 2).squeeze(-1)  # [batch_size, num_periods]
+        
+        return output
+
 class OurResnet(torch.nn.Module):
     def __init__(self, image_size = 128, hidden_dim=768, pv_len=12, intermediate_size = 384, **kwargs):
         super(OurResnet, self).__init__()
@@ -587,20 +629,11 @@ class OurResnet(torch.nn.Module):
         self.hidden_dim = hidden_dim
         self.pv_len = pv_len
         self.intermediate_size = intermediate_size  
-        self.mlp = nn.Sequential(
-            nn.Linear(2048 + self.pv_len + 1, self.intermediate_size),
-            nn.Mish(),
-            nn.Linear(self.intermediate_size, 48)
-        )
-        # weights = ViT_B_16_Weights.verify(ViT_B_16_Weights.DEFAULT)
-        # state_dict = weights.get_state_dict(progress=True, check_hash=True)
-        # state_dict = {k: v for k, v in state_dict.items() if k.startswith('encoder.layers') or k == 'class_token'}
-        # self.load_state_dict(state_dict, strict=False)
     def forward(self, pv, x, day):
         day = day.unsqueeze(1)
         x = torch.flatten(self.resnet(x), 1)
         x = torch.concat((x, pv, day), 1)
-        return self.mlp(x)
+        return self.transformer(x)
 
 class OurResnet2(torch.nn.Module):
     def __init__(self, image_size = 128, hidden_dim=768, pv_len=12, intermediate_size = 512, **kwargs):
@@ -616,19 +649,23 @@ class OurResnet2(torch.nn.Module):
         self.hidden_dim = hidden_dim
         self.pv_len = pv_len
         self.intermediate_size = intermediate_size  
+        concat_embed_size = 512 * 2 + 12
+        num_periods = 48
+        model_dim = 512
+        num_heads = 4
+        num_encoder_layers = 4
+        num_decoder_layers = 4
+        # self.transformer = SimpleTransformer(concat_embed_size, num_periods, model_dim, num_heads, num_encoder_layers, num_decoder_layers)
         self.mlp = nn.Sequential(
-            nn.Linear(512 + 512 + self.pv_len, self.intermediate_size),
+            nn.Linear(concat_embed_size, 512),
             nn.Mish(),
-            nn.Linear(self.intermediate_size, 48)
+            nn.Linear(512, num_periods)
         )
-        # weights = ViT_B_16_Weights.verify(ViT_B_16_Weights.DEFAULT)
-        # state_dict = weights.get_state_dict(progress=True, check_hash=True)
-        # state_dict = {k: v for k, v in state_dict.items() if k.startswith('encoder.layers') or k == 'class_token'}
-        # self.load_state_dict(state_dict, strict=False)
     def forward(self, pv, x, nwp):
         x = torch.flatten(self.resnet1(x), 1)
         y = torch.flatten(self.resnet2(nwp), 1)
         x = torch.concat((x, y, pv), 1)
+        #   x = torch.concat((x, y, pv), 1).unsqueeze(1)
         return self.mlp(x)
     
 class OurTransformer(VisionTransformer):
