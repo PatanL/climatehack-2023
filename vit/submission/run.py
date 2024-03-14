@@ -8,6 +8,8 @@ import h5py
 import torch
 from competition import BaseEvaluator
 from model import OurTransformer as Model
+import datetime
+import numpy as np
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -16,7 +18,7 @@ class Evaluator(BaseEvaluator):
         """Sets up anything required for evaluation, e.g. loading a model."""
 
         self.model = Model().to(device)
-        self.model.load_state_dict(torch.load("/home/dsingh/source/devksingh4/climatehack-2023/vit/submission/ViT-B32-2106.10270-Full-ep1-half.pt", map_location=device))
+        self.model.load_state_dict(torch.load("ViT-B32-2106.10270-Full-NoWeather-ep6.pt", map_location=device))
         self.model.eval()
 
     def predict(self, features: h5py.File):
@@ -31,15 +33,16 @@ class Evaluator(BaseEvaluator):
         Yields:
             Generator[np.ndarray, Any, None]: A batch of predictions.
         """
-
         with torch.inference_mode():
             # Select the variables you wish to use here!
-            for pv, hrv in self.batch(features, variables=["pv", "hrv"], batch_size=32):
+            for pv, hrv, times in self.batch(features, variables=["pv", "hrv", "time"], batch_size=32):
                 # Produce solar PV predictions for this batch
+                # do our date bullshit
                 with torch.autocast(device_type=device):
                     yield self.model(
-                        torch.from_numpy(pv).to(device),
-                        torch.from_numpy(hrv).to(device),
+                        torch.from_numpy(pv).to(device, dtype=torch.float),
+                        torch.from_numpy(hrv).to(device, dtype=torch.float),
+                        torch.from_numpy(times).to(device,dtype=torch.float),
                     ).cpu()
 
 

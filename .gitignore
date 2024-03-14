@@ -1,6 +1,7 @@
 vit/data/
 vit/indices.json
 vit/submission/*.pt
+model_archive/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

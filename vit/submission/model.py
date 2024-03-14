@@ -10,10 +10,12 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional
 import torch
 import torch.nn as nn
 
+import torchvision
 from torchvision.ops import Conv2dNormActivation, MLP
 from torchvision.utils import _log_api_usage_once
-from torchvision.models import ViT_B_16_Weights, ViT_B_32_Weights, ViT_H_14_Weights, ViT_L_16_Weights, ViT_L_32_Weights
-
+from torchvision.models import ViT_B_16_Weights, ViT_B_32_Weights, ViT_H_14_Weights, ViT_L_16_Weights, ViT_L_32_Weights, ResNet
+from torchvision.models.video import r3d_18
+from torchvision.models.resnet import Bottleneck
 
 __all__ = [
     "VisionTransformer",
@@ -576,7 +578,59 @@ def interpolate_embeddings(
 
 ## begin our actual model
 
+class OurResnet(torch.nn.Module):
+    def __init__(self, image_size = 128, hidden_dim=768, pv_len=12, intermediate_size = 384, **kwargs):
+        super(OurResnet, self).__init__()
+        self.resnet = ResNet(Bottleneck, [3, 4, 6, 3], groups=4, width_per_group=4)
+        self.resnet.conv1 = nn.Conv2d(12, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.resnet.fc = nn.Identity()
+        self.hidden_dim = hidden_dim
+        self.pv_len = pv_len
+        self.intermediate_size = intermediate_size  
+        self.mlp = nn.Sequential(
+            nn.Linear(2048 + self.pv_len + 1, self.intermediate_size),
+            nn.Mish(),
+            nn.Linear(self.intermediate_size, 48)
+        )
+        # weights = ViT_B_16_Weights.verify(ViT_B_16_Weights.DEFAULT)
+        # state_dict = weights.get_state_dict(progress=True, check_hash=True)
+        # state_dict = {k: v for k, v in state_dict.items() if k.startswith('encoder.layers') or k == 'class_token'}
+        # self.load_state_dict(state_dict, strict=False)
+    def forward(self, pv, x, day):
+        day = day.unsqueeze(1)
+        x = torch.flatten(self.resnet(x), 1)
+        x = torch.concat((x, pv, day), 1)
+        return self.mlp(x)
 
+class OurResnet2(torch.nn.Module):
+    def __init__(self, image_size = 128, hidden_dim=768, pv_len=12, intermediate_size = 512, **kwargs):
+        super(OurResnet2, self).__init__()
+        self.resnet1 = r3d_18()
+        self.resnet1.stem[0] = nn.Conv3d(12, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
+        self.resnet1.fc = nn.Identity()
+
+        self.resnet2 = r3d_18()
+        self.resnet2.stem[0] = nn.Conv3d(6, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
+        self.resnet2.fc = nn.Identity()
+
+        self.hidden_dim = hidden_dim
+        self.pv_len = pv_len
+        self.intermediate_size = intermediate_size  
+        self.mlp = nn.Sequential(
+            nn.Linear(512 + 512 + self.pv_len, self.intermediate_size),
+            nn.Mish(),
+            nn.Linear(self.intermediate_size, 48)
+        )
+        # weights = ViT_B_16_Weights.verify(ViT_B_16_Weights.DEFAULT)
+        # state_dict = weights.get_state_dict(progress=True, check_hash=True)
+        # state_dict = {k: v for k, v in state_dict.items() if k.startswith('encoder.layers') or k == 'class_token'}
+        # self.load_state_dict(state_dict, strict=False)
+    def forward(self, pv, x, nwp):
+        x = torch.flatten(self.resnet1(x), 1)
+        y = torch.flatten(self.resnet2(nwp), 1)
+        x = torch.concat((x, y, pv), 1)
+        return self.mlp(x)
+    
 class OurTransformer(VisionTransformer):
     def __init__(self, image_size = 128, hidden_dim=768, pv_len=12, intermediate_size = 384, **kwargs):
         super(OurTransformer, self).__init__(
