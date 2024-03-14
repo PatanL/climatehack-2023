@@ -16,10 +16,9 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 class Evaluator(BaseEvaluator):
     def setup(self, model = None) -> None:
         """Sets up anything required for evaluation, e.g. loading a model."""
-        super(Evaluator, self).__init__()
         if not model:
             self.model = Model().to(device)
-            self.model.load_state_dict(torch.load("OurResnetCombo-Full-NoWeather-ep12.pt", map_location=device))
+            self.model.load_state_dict(torch.load("OurResnetCombo-Full-Weather-ep15.pt", map_location=device))
         else:
             self.model = model
         self.model.eval()
@@ -52,4 +51,4 @@ class Evaluator(BaseEvaluator):
 
 
 if __name__ == "__main__":
-    Evaluator().evaluate()
+    Evaluator(None).evaluate()

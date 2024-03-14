@@ -16,8 +16,8 @@ from torch.utils.data import DataLoader, IterableDataset
 from torchinfo import summary
 import json
 plt.rcParams["figure.figsize"] = (20, 12)
-#get_ipython().run_line_magic('load_ext', 'autoreload')
-#get_ipython().run_line_magic('autoreload', '2')
+# %load_ext autoreload
+# %autoreload 2
 
 
 # In[2]:
@@ -38,12 +38,12 @@ data_loader = DataLoader(dataset, batch_size=32, pin_memory=True, num_workers=8,
 print(f"train dataset len: {len(dataset)}")
 
 
-# In[6]:
+# In[12]:
 
 
 from submission.model import OurResnet2
 model = OurResnet2(image_size=128).to(device)
-model.load_state_dict(torch.load("submission/OurResnetCombo-Full-NoWeather-ep12.pt", map_location=device))
+model.load_state_dict(torch.load("submission/OurResnetCombo-Full-NoWeather-ep16.pt", map_location=device))
 criterion = nn.L1Loss()
 optimiser = optim.Adam(model.parameters(), lr=1e-3)
 summary(model, input_size=[(1, 12), (1, 12, 1, 128, 128), (1, 6, 10, 128, 128)])
@@ -53,14 +53,18 @@ summary(model, input_size=[(1, 12), (1, 12, 1, 128, 128), (1, 6, 10, 128, 128)])
 # model(x, y, z)
 
 
-# In[7]:
+# In[13]:
 
 
 EPOCHS = 100
+START_EPOCH = 16
 MODEL_KEY="OurResnetCombo-Full-Weather"
 print(f"Training model key {MODEL_KEY}")
 from tqdm import tqdm
 for epoch in range(EPOCHS):
+    with torch.no_grad():
+        from validate import main
+        main(model=model)
     model.train()
 
     running_loss = 0.0
@@ -85,10 +89,10 @@ for epoch in range(EPOCHS):
         count += size
 
         if i % 50 == 49:
-            pbar.set_description(f"Epoch {epoch + 1}, {i + 1}: {running_loss / count}")
+            pbar.set_description(f"Epoch {START_EPOCH + epoch + 1}, {i + 1}: {running_loss / count}")
 
-    print(f"Epoch {epoch + 1}: {running_loss / count}")
-    torch.save(model.state_dict(), f"submission/{MODEL_KEY}-ep{epoch + 1}.pt")
+    print(f"Epoch {START_EPOCH + epoch + 1}: {running_loss / count}")
+    torch.save(model.state_dict(), f"submission/{MODEL_KEY}-ep{START_EPOCH + epoch + 1}.pt")
     print("Saved model!")
 
 

@@ -1,3 +1,4 @@
 #!/bin/bash
-jupyter nbconvert 2_training.ipynb --to python 
-python 2_training.py| tee "$(date +"%Y_%m_%d_%I_%M_%p").log"
+FILE=2_training_resnet_weather
+jupyter nbconvert $FILE.ipynb --to python 
+python $FILE.py| tee "$(date +"%Y_%m_%d_%I_%M_%p").log"
