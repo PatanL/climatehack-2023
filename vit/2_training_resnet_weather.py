@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[7]:
+# In[ ]:
 
 
 from datetime import datetime, time, timedelta
@@ -20,7 +20,7 @@ plt.rcParams["figure.figsize"] = (20, 12)
 # %autoreload 2
 
 
-# In[8]:
+# In[ ]:
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -29,7 +29,7 @@ print(device)
 
 # ## Train a model
 
-# In[9]:
+# In[ ]:
 
 
 from dataset import HDF5Dataset
@@ -41,7 +41,7 @@ print(f"train dataset len: {len(dataset)}")
 # In[ ]:
 
 
-EPOCHS = 100
+EPOCHS = 200
 from submission.model import OurResnet2
 model = OurResnet2(image_size=128).to(device)
 # model.load_state_dict(torch.load("submission/OurResnetCombo-Full-NoWeather-ep16.pt", map_location=device))
