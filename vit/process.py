@@ -203,7 +203,7 @@ def process_data(sat_type):
             f_extra_val = f_val.create_group('extra')
             f_y_val = f_val.create_group('y')
         
-            for i, set_type, data in tqdm(worker([(year, month) for year in range(2020, 2021) for month in range(1, 13)], sat_type)):
+            for i, set_type, data in tqdm(worker([(year, month) for year in range(2020, 2022) for month in range(1, 13)], sat_type)):
                 # (pv, sat, nwp, extra, y) = data
                 if set_type == "train":
                     f_pv.create_dataset(f'data_{i}', data=data[0], compression="lzf")
