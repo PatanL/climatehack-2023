@@ -44,11 +44,10 @@ print(f"train dataset len: {len(dataset)}")
 EPOCHS = 200
 from submission.model import OurResnet2
 model = OurResnet2(image_size=128).to(device)
-# model.load_state_dict(torch.load("submission/OurResnetCombo-Full-NoWeather-ep16.pt", map_location=device))
 criterion = nn.L1Loss()
 optimiser = optim.AdamW(model.parameters(), lr=1e-3)
-lr_scheduler = optim.lr_scheduler.OneCycleLR(optimiser, max_lr=1e-2, epochs=EPOCHS, steps_per_epoch=len(data_loader))
-summary(model, input_size=[(1, 12), (1, 12, 1, 128, 128), (1, 6, 10, 128, 128)])
+lr_scheduler = optim.lr_scheduler.OneCycleLR(optimiser, max_lr=5e-2, epochs=EPOCHS, steps_per_epoch=len(data_loader))
+summary(model, input_size=[(1, 12), (1, 1, 12, 128, 128), (1, 60, 1, 128, 128)])
 # x = torch.randn((1, 12)).to(device)
 # y = torch.randn((1, 12, 1, 128, 128)).to(device)
 # z = torch.randn((1, 6, 10, 128, 128)).to(device)
@@ -59,7 +58,7 @@ summary(model, input_size=[(1, 12), (1, 12, 1, 128, 128), (1, 6, 10, 128, 128)])
 
 
 START_EPOCH = 0
-MODEL_KEY="OurResnetCombo-Full-Weather-NewOptim-ResFCNet2"
+MODEL_KEY="TemporalResnet2+1Combo-Full-Weather-NewOptim-ResFCNet2"
 print(f"Training model key {MODEL_KEY}")
 from tqdm import tqdm
 for epoch in range(EPOCHS):
@@ -70,8 +69,8 @@ for epoch in range(EPOCHS):
     for i, (pv_features, hrv_features, nwp, extra, pv_targets) in (pbar := tqdm(enumerate(data_loader), total=len(data_loader))):
         optimiser.zero_grad()
         with torch.autocast(device_type=device):
-            nwp = nwp.permute(0, 2, 1, 3, 4)
-            hrv_features = torch.unsqueeze(hrv_features, 2) # channels as first dim then number of "frames"
+            nwp = torch.unsqueeze(nwp.flatten(1, 2), 2)
+            hrv_features = torch.unsqueeze(hrv_features, 1)
             predictions = model(
                 pv_features.to(device,dtype=torch.float),
                 hrv_features.to(device,dtype=torch.float),

@@ -15,7 +15,7 @@ import torchvision
 from torchvision.ops import Conv2dNormActivation, MLP
 from torchvision.utils import _log_api_usage_once
 from torchvision.models import ViT_B_16_Weights, ViT_B_32_Weights, ViT_H_14_Weights, ViT_L_16_Weights, ViT_L_32_Weights, ResNet
-from torchvision.models.video import r3d_18
+from torchvision.models.video import r3d_18, r2plus1d_18
 from torchvision.models.resnet import Bottleneck
 
 __all__ = [
@@ -57,7 +57,7 @@ class ResidualNet(nn.Module):
     def __init__(self, input_size, hidden_sizes, output_size):
         super(ResidualNet, self).__init__()
         self.input_fc = nn.Linear(input_size, hidden_sizes[0])
-        
+        self.dropout = nn.Dropout(0.3)
         # Create residual blocks
         self.blocks = nn.ModuleList()
         for i in range(1, len(hidden_sizes)):
@@ -68,7 +68,7 @@ class ResidualNet(nn.Module):
     def forward(self, x):
         out = F.relu(self.input_fc(x))
         for block in self.blocks:
-            out = block(out)
+            out = self.dropout(block(out))
         out = self.output_fc(out)
         return out
 
@@ -620,12 +620,12 @@ def interpolate_embeddings(
 class OurResnet2(torch.nn.Module):
     def __init__(self, image_size = 128, hidden_dim=768, pv_len=12, intermediate_size = 512, **kwargs):
         super(OurResnet2, self).__init__()
-        self.resnet1 = r3d_18()
-        self.resnet1.stem[0] = nn.Conv3d(12, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
+        self.resnet1 = r2plus1d_18()
+        self.resnet1.stem[0] = nn.Conv3d(1, 45, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
         self.resnet1.fc = nn.Identity()
 
-        self.resnet2 = r3d_18()
-        self.resnet2.stem[0] = nn.Conv3d(6, 64, kernel_size=(3, 7, 7), stride=(1, 2, 2), padding=(1, 3, 3), bias=False)
+        self.resnet2 = r2plus1d_18()
+        self.resnet2.stem[0] = nn.Conv3d(60, 45, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
         self.resnet2.fc = nn.Identity()
 
         self.hidden_dim = hidden_dim
