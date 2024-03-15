@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[ ]:
+# In[2]:
 
 
 from datetime import datetime, time, timedelta
@@ -44,6 +44,7 @@ print(f"train dataset len: {len(dataset)}")
 EPOCHS = 200
 from submission.model import OurResnet2
 model = OurResnet2(image_size=128).to(device)
+model.load_state_dict(torch.load("/data/TemporalResnet2+1Combo-Full-Weather-NewOptim-ResFCNet2-ep1.pt"))
 criterion = nn.L1Loss()
 optimiser = optim.AdamW(model.parameters(), lr=1e-3)
 lr_scheduler = optim.lr_scheduler.OneCycleLR(optimiser, max_lr=5e-2, epochs=EPOCHS, steps_per_epoch=len(data_loader))
@@ -57,7 +58,7 @@ summary(model, input_size=[(1, 12), (1, 1, 12, 128, 128), (1, 60, 1, 128, 128)])
 # In[ ]:
 
 
-START_EPOCH = 0
+START_EPOCH = 1
 MODEL_KEY="TemporalResnet2+1Combo-Full-Weather-NewOptim-ResFCNet2"
 print(f"Training model key {MODEL_KEY}")
 from tqdm import tqdm

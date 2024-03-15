@@ -57,7 +57,7 @@ class ResidualNet(nn.Module):
     def __init__(self, input_size, hidden_sizes, output_size):
         super(ResidualNet, self).__init__()
         self.input_fc = nn.Linear(input_size, hidden_sizes[0])
-        self.dropout = nn.Dropout(0.3)
+        self.dropout = nn.Dropout(0.4)
         # Create residual blocks
         self.blocks = nn.ModuleList()
         for i in range(1, len(hidden_sizes)):
