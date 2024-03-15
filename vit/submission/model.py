@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torchvision.models import ViT_B_16_Weights
+import torch.nn.functional as F
 
 import math
 from collections import OrderedDict
@@ -31,6 +32,45 @@ __all__ = [
     "vit_h_14",
 ]
 
+class ResidualBlock(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(ResidualBlock, self).__init__()
+        self.fc1 = nn.Linear(input_dim, output_dim)
+        self.fc2 = nn.Linear(output_dim, output_dim)
+        
+        # Shortcut connection if input and output dimensions are not equal
+        self.shortcut = nn.Sequential()
+        if input_dim != output_dim:
+            self.shortcut = nn.Sequential(
+                nn.Linear(input_dim, output_dim),
+                nn.BatchNorm1d(output_dim)
+            )
+        
+    def forward(self, x):
+        out = F.relu(self.fc1(x))
+        out = self.fc2(out)
+        out += self.shortcut(x)
+        out = F.relu(out)
+        return out
+    
+class ResidualNet(nn.Module):
+    def __init__(self, input_size, hidden_sizes, output_size):
+        super(ResidualNet, self).__init__()
+        self.input_fc = nn.Linear(input_size, hidden_sizes[0])
+        
+        # Create residual blocks
+        self.blocks = nn.ModuleList()
+        for i in range(1, len(hidden_sizes)):
+            self.blocks.append(ResidualBlock(hidden_sizes[i-1], hidden_sizes[i]))
+            
+        self.output_fc = nn.Linear(hidden_sizes[-1], output_size)
+        
+    def forward(self, x):
+        out = F.relu(self.input_fc(x))
+        for block in self.blocks:
+            out = block(out)
+        out = self.output_fc(out)
+        return out
 
 class ConvStemConfig(NamedTuple):
     out_channels: int
@@ -577,64 +617,6 @@ def interpolate_embeddings(
     return model_state
 
 ## begin our actual model
-
-class SimpleTransformer(torch.nn.Module):
-    def __init__(self, concat_embed_size, num_periods, model_dim, num_heads, num_encoder_layers, num_decoder_layers):
-        super(SimpleTransformer, self).__init__()
-        
-        self.model_dim = model_dim
-        self.num_periods = num_periods
-        
-        # Input linear layer to match the model dimension
-        self.input_linear = nn.Linear(concat_embed_size, model_dim)
-        
-        # Transformer
-        self.transformer = nn.Transformer(d_model=model_dim, nhead=num_heads,
-                                          num_encoder_layers=num_encoder_layers,
-                                          num_decoder_layers=num_decoder_layers)
-                                          
-        # Output linear layer to transform to the desired output shape
-        self.output_linear = nn.Linear(model_dim, 1)  # Assuming a single feature per period
-        
-        # Positional Encoding for decoder input
-        self.positional_encoding = nn.Parameter(torch.randn(1, num_periods, model_dim), requires_grad=True)
-
-    def forward(self, src):
-        # src shape: [batch_size, seq_length=1, concat_embed_size]
-        batch_size = src.size(0)
-        
-        # Process input
-        src = self.input_linear(src)  # [batch_size, seq_length=1, model_dim]
-        src = src.permute(1, 0, 2)  # Transformer expects [seq_length, batch_size, model_dim]
-        
-        # Prepare decoder input: positional encodings
-        decoder_input = self.positional_encoding.repeat(batch_size, 1, 1)  # [batch_size, num_periods, model_dim]
-        decoder_input = decoder_input.permute(1, 0, 2)  # To [num_periods, batch_size, model_dim]
-        
-        # Transformer forward pass
-        transformer_output = self.transformer(src, decoder_input)
-        
-        # Transform output to the desired shape
-        output = self.output_linear(transformer_output)
-        output = output.permute(1, 0, 2).squeeze(-1)  # [batch_size, num_periods]
-        
-        return output
-
-class OurResnet(torch.nn.Module):
-    def __init__(self, image_size = 128, hidden_dim=768, pv_len=12, intermediate_size = 384, **kwargs):
-        super(OurResnet, self).__init__()
-        self.resnet = ResNet(Bottleneck, [3, 4, 6, 3], groups=4, width_per_group=4)
-        self.resnet.conv1 = nn.Conv2d(12, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.resnet.fc = nn.Identity()
-        self.hidden_dim = hidden_dim
-        self.pv_len = pv_len
-        self.intermediate_size = intermediate_size  
-    def forward(self, pv, x, day):
-        day = day.unsqueeze(1)
-        x = torch.flatten(self.resnet(x), 1)
-        x = torch.concat((x, pv, day), 1)
-        return self.transformer(x)
-
 class OurResnet2(torch.nn.Module):
     def __init__(self, image_size = 128, hidden_dim=768, pv_len=12, intermediate_size = 512, **kwargs):
         super(OurResnet2, self).__init__()
@@ -650,17 +632,8 @@ class OurResnet2(torch.nn.Module):
         self.pv_len = pv_len
         self.intermediate_size = intermediate_size  
         concat_embed_size = 512 * 2 + 12
-        num_periods = 48
-        # model_dim = 512
-        # num_heads = 4
-        # num_encoder_layers = 4
-        # num_decoder_layers = 4
-        # elf.transformer = SimpleTransformer(concat_embed_size, num_periods, model_dim, num_heads, num_encoder_layers, num_decoder_layers)
-        self.mlp = nn.Sequential(
-            nn.Linear(concat_embed_size, 512),
-            nn.Mish(),
-            nn.Linear(512, num_periods)
-        )
+        self.mlp = ResidualNet(input_size=concat_embed_size, hidden_sizes=[384, 256, 128, 64], output_size=48)
+
     def forward(self, pv, x, nwp):
         # pv is the pv data [batch_size, samples]
         # x is the hrv sat data [batch_size, 12, 128, 128]

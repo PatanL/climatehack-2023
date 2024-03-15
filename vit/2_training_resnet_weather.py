@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[7]:
 
 
 from datetime import datetime, time, timedelta
@@ -20,7 +20,7 @@ plt.rcParams["figure.figsize"] = (20, 12)
 # %autoreload 2
 
 
-# In[2]:
+# In[8]:
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -29,23 +29,25 @@ print(device)
 
 # ## Train a model
 
-# In[3]:
+# In[9]:
 
 
 from dataset import HDF5Dataset
-dataset = HDF5Dataset("./data/processed_data/processed_train.hdf5", True, True, True, True)
+dataset = HDF5Dataset("./data/ds14_processed_data/processed_train.hdf5", True, True, True, True)
 data_loader = DataLoader(dataset, batch_size=32, pin_memory=True, num_workers=8, shuffle=True)
 print(f"train dataset len: {len(dataset)}")
 
 
-# In[12]:
+# In[ ]:
 
 
+EPOCHS = 100
 from submission.model import OurResnet2
 model = OurResnet2(image_size=128).to(device)
-model.load_state_dict(torch.load("submission/OurResnetCombo-Full-NoWeather-ep16.pt", map_location=device))
+# model.load_state_dict(torch.load("submission/OurResnetCombo-Full-NoWeather-ep16.pt", map_location=device))
 criterion = nn.L1Loss()
-optimiser = optim.Adam(model.parameters(), lr=1e-3)
+optimiser = optim.AdamW(model.parameters(), lr=1e-3)
+lr_scheduler = optim.lr_scheduler.OneCycleLR(optimiser, max_lr=1e-2, epochs=EPOCHS, steps_per_epoch=len(data_loader))
 summary(model, input_size=[(1, 12), (1, 12, 1, 128, 128), (1, 6, 10, 128, 128)])
 # x = torch.randn((1, 12)).to(device)
 # y = torch.randn((1, 12, 1, 128, 128)).to(device)
@@ -53,18 +55,14 @@ summary(model, input_size=[(1, 12), (1, 12, 1, 128, 128), (1, 6, 10, 128, 128)])
 # model(x, y, z)
 
 
-# In[13]:
+# In[ ]:
 
 
-EPOCHS = 100
-START_EPOCH = 16
-MODEL_KEY="OurResnetCombo-Full-Weather"
+START_EPOCH = 0
+MODEL_KEY="OurResnetCombo-Full-Weather-NewOptim-ResFCNet2"
 print(f"Training model key {MODEL_KEY}")
 from tqdm import tqdm
 for epoch in range(EPOCHS):
-    with torch.no_grad():
-        from validate import main
-        main(model=model)
     model.train()
 
     running_loss = 0.0
@@ -81,18 +79,22 @@ for epoch in range(EPOCHS):
             )
             loss = criterion(predictions, pv_targets.to(device, dtype=torch.float))
         loss.backward()
-
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
         optimiser.step()
 
         size = int(pv_targets.size(0))
         running_loss += float(loss) * size
         count += size
 
-        if i % 50 == 49:
+        if i % 10 == 9:
             pbar.set_description(f"Epoch {START_EPOCH + epoch + 1}, {i + 1}: {running_loss / count}")
+        if i % 100 == 99:
+            print(f"Epoch {START_EPOCH + epoch + 1}, {i + 1}: {running_loss / count}")
+
+        lr_scheduler.step()
 
     print(f"Epoch {START_EPOCH + epoch + 1}: {running_loss / count}")
-    torch.save(model.state_dict(), f"submission/{MODEL_KEY}-ep{START_EPOCH + epoch + 1}.pt")
+    torch.save(model.state_dict(), f"/data/{MODEL_KEY}-ep{START_EPOCH + epoch + 1}.pt")
     print("Saved model!")
 
 

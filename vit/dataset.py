@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import DataLoader, Dataset
 import h5py
+import hdf5plugin
 
 BATCH_SIZE = 32
 class HDF5Dataset(Dataset):
