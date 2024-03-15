@@ -635,6 +635,7 @@ class OurResnet2(torch.nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(concat_embed_size, 512),
             nn.Mish(),
+            nn.Dropout(0.4),
             nn.Linear(512, 48),
             nn.Mish()
         )
