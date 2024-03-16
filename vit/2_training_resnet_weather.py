@@ -34,7 +34,7 @@ print(device)
 
 from dataset import HDF5Dataset
 dataset = HDF5Dataset("./data/ds14_processed_data/processed_train.hdf5", True, True, True, True)
-data_loader = DataLoader(dataset, batch_size=32, pin_memory=True, num_workers=8, shuffle=True)
+data_loader = DataLoader(dataset, batch_size=8, pin_memory=True, num_workers=8, shuffle=True)
 print(f"train dataset len: {len(dataset)}")
 
 
@@ -45,22 +45,22 @@ EPOCHS = 200
 from submission.model import OurResnet2
 model = OurResnet2(image_size=128).to(device)
 criterion = nn.L1Loss()
-optimiser = optim.AdamW(model.parameters(), lr=1e-3)
-lr_scheduler = optim.lr_scheduler.OneCycleLR(optimiser, max_lr=5e-2, epochs=EPOCHS, steps_per_epoch=len(data_loader))
-summary(model, input_size=[(1, 12), (1, 1, 12, 128, 128), (1, 60, 128, 128)])
+optimiser = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0.05)
+lr_scheduler = optim.lr_scheduler.OneCycleLR(optimiser, max_lr=2e-3, epochs=EPOCHS, steps_per_epoch=len(data_loader))
+summary(model, input_size=[(1, 12), (1, 1, 12, 128, 128), (1, 10, 6, 128, 128)])
 # x = torch.randn((1, 12)).to(device)
 # y = torch.randn((1, 1, 12, 128, 128)).to(device)
-# z = torch.randn((1, 60, 128, 128)).to(device)
+# z = torch.randn((1, 10, 6, 128, 128)).to(device)
+# model(x, y, z)
 
 
-# In[ ]:
+# In[5]:
 
 
 START_EPOCH = 0
-MODEL_KEY="SplitTemporalResnet2+1Combo-Full-Weather-NewOptim-ResFCNet2"
+MODEL_KEY="TemporalResnet2+1Combo-Full-Weather-NewOptim-FC"
 print(f"Training model key {MODEL_KEY}")
 from tqdm import tqdm
-torch.autograd.set_detect_anomaly(True)
 for epoch in range(EPOCHS):
     model.train()
 
@@ -70,7 +70,6 @@ for epoch in range(EPOCHS):
         optimiser.zero_grad()
         with torch.autocast(device_type=device):
             hrv_features = torch.unsqueeze(hrv_features, 1)
-            nwp = nwp.flatten(1, 2)
             predictions = model(
                 pv_features.to(device,dtype=torch.float),
                 hrv_features.to(device,dtype=torch.float),
@@ -78,7 +77,7 @@ for epoch in range(EPOCHS):
             )
             loss = criterion(predictions, pv_targets.to(device, dtype=torch.float))
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
         optimiser.step()
 
         size = int(pv_targets.size(0))

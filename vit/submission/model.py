@@ -17,7 +17,7 @@ from torchvision.utils import _log_api_usage_once
 from torchvision.models import ViT_B_16_Weights, ViT_B_32_Weights, ViT_H_14_Weights, ViT_L_16_Weights, ViT_L_32_Weights, ResNet, resnet18
 from torchvision.models.video import r3d_18, r2plus1d_18
 from torchvision.models.resnet import Bottleneck
-
+import torchvision.models as models
 __all__ = [
     "VisionTransformer",
     "ViT_B_16_Weights",
@@ -624,8 +624,8 @@ class OurResnet2(torch.nn.Module):
         self.resnet1.stem[0] = nn.Conv3d(1, 45, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
         self.resnet1.fc = nn.Identity()
 
-        self.resnet2 = resnet18()
-        self.resnet2.conv1 = nn.Conv2d(60, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        self.resnet2 = r2plus1d_18()
+        self.resnet2.stem[0] = nn.Conv3d(10, 45, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
         self.resnet2.fc = nn.Identity()
 
         self.hidden_dim = hidden_dim
@@ -633,10 +633,8 @@ class OurResnet2(torch.nn.Module):
         self.intermediate_size = intermediate_size  
         concat_embed_size = 512 * 2 + 12
         self.mlp = nn.Sequential(
-            nn.Linear(concat_embed_size, 512),
-            nn.Mish(),
-            nn.Dropout(0.4),
-            nn.Linear(512, 48),
+            nn.Dropout(0.5),
+            nn.Linear(concat_embed_size, 48),
             nn.Mish()
         )
 
