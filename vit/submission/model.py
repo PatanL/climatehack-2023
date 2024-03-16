@@ -618,36 +618,47 @@ def interpolate_embeddings(
 
 ## begin our actual model
 class OurResnet2(torch.nn.Module):
-    def __init__(self, image_size = 128, hidden_dim=768, pv_len=12, intermediate_size = 512, **kwargs):
+    def __init__(self, image_size = 128, hidden_dim=768, pv_len=12, intermediate_size = 512, device = 'cuda', **kwargs):
         super(OurResnet2, self).__init__()
+
+        self.orientation_embedding = nn.Embedding(num_embeddings=360, embedding_dim=12)
+        self.tilt_embedding = nn.Embedding(num_embeddings=360, embedding_dim=12)
+        
+        self.device = device
         self.resnet1 = r2plus1d_18()
         self.dropout_emb = 0.2
         self.resnet1.stem[0] = nn.Conv3d(1, 45, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
         self.resnet1.fc = nn.Sequential(
-            nn.Linear(512, 128),
+            nn.Linear(512, 384),
             nn.Mish(),
-            nn.Dropout(self.dropout_emb),
-            nn.Linear(128, 256),
+            nn.Linear(384, 256),
             nn.Mish()
         )
 
         self.resnet2 = r2plus1d_18()
         self.resnet2.stem[0] = nn.Conv3d(10, 45, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
         self.resnet2.fc = nn.Sequential(
-            nn.Linear(512, 128),
+            nn.Linear(512, 384),
             nn.Mish(),
-            nn.Dropout(self.dropout_emb),
-            nn.Linear(128, 256),
+            nn.Linear(384, 256),
             nn.Mish()
         )
 
         self.hidden_dim = hidden_dim
         self.pv_len = pv_len
         self.intermediate_size = intermediate_size  
-        concat_embed_size = 256 * 2 + 12 + 4
-        self.mlp = nn.Sequential(
-            nn.Dropout(0.2),
-            nn.Linear(concat_embed_size, 48),
+        self.joint_mlp = nn.Sequential(
+            nn.Dropout(self.dropout_emb),
+            nn.Linear(256 * 2, 256),
+            nn.Mish(),
+            nn.Linear(256, 128),
+            nn.Mish()
+        )
+
+        self.final_mlp = nn.Sequential(
+            nn.Linear(128 + 36, 64),
+            nn.Mish(),
+            nn.Linear(64, 48), 
             nn.Mish()
         )
 
@@ -655,11 +666,19 @@ class OurResnet2(torch.nn.Module):
         # pv is the pv data [batch_size, samples]
         # x is the hrv sat data [batch_size, 12, 128, 128]
         # nwp is the stacked nwp data [batch_size, 10, 6, 128, 128]
+        # extra is the orientation, tilt, and kwp [batch_size, 3]
+        extra = extra.type(torch.IntTensor).to(self.device)
         x = self.resnet1(x)
         y = self.resnet2(nwp)
-        x = torch.concat((x, y, pv, extra), 1)
-        #   x = torch.concat((x, y, pv), 1).unsqueeze(1)
-        return self.mlp(x)
+        joint_image = torch.concat((x, y), 1)
+        joint_rep = self.joint_mlp(joint_image)
+        
+        # add orientation, tilt, and kwp embeddings
+        or_emb, ti_emb = self.orientation_embedding(extra[:, 0]), self.tilt_embedding(extra[:, 1])
+
+        final_rep = torch.concat((joint_rep, pv, or_emb, ti_emb), 1)
+
+        return self.final_mlp(final_rep)
     
 class OurTransformer(VisionTransformer):
     def __init__(self, image_size = 128, hidden_dim=768, pv_len=12, intermediate_size = 384, **kwargs):
