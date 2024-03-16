@@ -18,7 +18,7 @@ class Evaluator(BaseEvaluator):
         """Sets up anything required for evaluation, e.g. loading a model."""
         if not model:
             self.model = Model().to(device)
-            self.model.load_state_dict(torch.load("SplitTemporalResnet2+1Combo-Full-Weather-NewOptim-ResFCNet2-ep7.pt", map_location=device))
+            self.model.load_state_dict(torch.load("/data/TemporalResnet2+1Combo-Full-Weather-NewOptim-FC-ep13.pt", map_location=device))
         else:
             self.model = model
         self.model.eval()
@@ -42,7 +42,6 @@ class Evaluator(BaseEvaluator):
                 pv, hrv, times = data[-3:]
                 hrv = torch.unsqueeze(torch.from_numpy(hrv), 1)
                 nwp = torch.from_numpy(np.stack(data[:-3])).permute(1, 0, 2, 3, 4)
-                nwp = nwp.flatten(1, 2)
                 # print(nwp.shape, hrv.shape)
                 with torch.autocast(device_type=device):
                     yield self.model(

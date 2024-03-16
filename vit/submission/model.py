@@ -621,30 +621,43 @@ class OurResnet2(torch.nn.Module):
     def __init__(self, image_size = 128, hidden_dim=768, pv_len=12, intermediate_size = 512, **kwargs):
         super(OurResnet2, self).__init__()
         self.resnet1 = r2plus1d_18()
+        self.dropout_emb = 0.2
         self.resnet1.stem[0] = nn.Conv3d(1, 45, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
-        self.resnet1.fc = nn.Identity()
+        self.resnet1.fc = nn.Sequential(
+            nn.Linear(512, 128),
+            nn.Mish(),
+            nn.Dropout(self.dropout_emb),
+            nn.Linear(128, 256),
+            nn.Mish()
+        )
 
         self.resnet2 = r2plus1d_18()
         self.resnet2.stem[0] = nn.Conv3d(10, 45, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
-        self.resnet2.fc = nn.Identity()
+        self.resnet2.fc = nn.Sequential(
+            nn.Linear(512, 128),
+            nn.Mish(),
+            nn.Dropout(self.dropout_emb),
+            nn.Linear(128, 256),
+            nn.Mish()
+        )
 
         self.hidden_dim = hidden_dim
         self.pv_len = pv_len
         self.intermediate_size = intermediate_size  
-        concat_embed_size = 512 * 2 + 12
+        concat_embed_size = 256 * 2 + 12 + 4
         self.mlp = nn.Sequential(
-            nn.Dropout(0.5),
+            nn.Dropout(0.2),
             nn.Linear(concat_embed_size, 48),
             nn.Mish()
         )
 
-    def forward(self, pv, x, nwp):
+    def forward(self, pv, x, nwp, extra):
         # pv is the pv data [batch_size, samples]
         # x is the hrv sat data [batch_size, 12, 128, 128]
         # nwp is the stacked nwp data [batch_size, 10, 6, 128, 128]
-        x = torch.flatten(self.resnet1(x), 1)
-        y = torch.flatten(self.resnet2(nwp), 1)
-        x = torch.concat((x, y, pv), 1)
+        x = self.resnet1(x)
+        y = self.resnet2(nwp)
+        x = torch.concat((x, y, pv, extra), 1)
         #   x = torch.concat((x, y, pv), 1).unsqueeze(1)
         return self.mlp(x)
     
