@@ -40,12 +40,14 @@ print(f"train dataset len: {len(dataset)}")
 
 
 EPOCHS = 200
-START_EPOCH = 0
+START_EPOCH = 2
+LR = 4e-4
 from submission.model import OurResnet2
 model = OurResnet2(image_size=128, device=device).to(device)
+model.load_state_dict(torch.load("/home/dsingh/source/devksingh4/climatehack-2023/vit/cpts/ExtraEmbedding_TemporalResnet2+1Combo-DeepFC-ep2.pt"))
 criterion = nn.L1Loss()
-optimiser = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=0.02)
-lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=30, eta_min=3e-4)
+optimiser = optim.AdamW(model.parameters(), lr=LR, weight_decay=0.02)
+lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=10, eta_min=5e-5)
 summary(model, input_size=[(1, 12), (1, 1, 12, 128, 128), (1, 10, 6, 128, 128), (1, 3)])
 # x = torch.randn((1, 12)).to(device)
 # y = torch.randn((1, 1, 12, 128, 128)).to(device)
@@ -92,12 +94,12 @@ for epoch in range(EPOCHS):
             pbar.set_description(f"Epoch {START_EPOCH + epoch + 1}, {i + 1}: {running_loss / count}")
         if i % 100 == 99:
             print(f"Epoch {START_EPOCH + epoch + 1}, {i + 1}: {running_loss / count}")
+            writer.add_scalar(f"Loss/train", (running_loss / count), START_EPOCH + epoch + 1)
 
     lr_scheduler.step()
     current_lr = lr_scheduler.get_last_lr()[0]
     print(f"Epoch {START_EPOCH + epoch + 1}: {running_loss / count} (LR: {current_lr})")
-    writer.add_scalar(f"Loss/train", (running_loss / count), START_EPOCH + epoch + 1)
     writer.add_scalar(f"LR", current_lr, START_EPOCH + epoch + 1)
-    torch.save(model.state_dict(), f"/data/{MODEL_KEY}-ep{START_EPOCH + epoch + 1}.pt")
+    torch.save(model.state_dict(), f"./cpts/{MODEL_KEY}-ep{START_EPOCH + epoch + 1}.pt")
     print("Saved model!")
 
