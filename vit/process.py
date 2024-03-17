@@ -50,7 +50,7 @@ def get_image_times(year, month):
         current_time = datetime.combine(date, start_time)
         
         while current_time.time() < end_time:
-            if current_time and np.random.rand() < 0.08:
+            if current_time and np.random.rand() < 0.16:
                 yield current_time
                 
             minutes_to_add = int(np.random.choice([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]))
@@ -101,7 +101,7 @@ def worker(dates, sat_type):
                 continue
 
             for site in sites:
-                if np.random.rand() < 0.65:
+                if np.random.rand() < 0.55:
                     continue
                 try:
                     # Get solar PV features and targets
