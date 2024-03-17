@@ -626,7 +626,7 @@ class OurResnet2(torch.nn.Module):
         
         self.device = device
         self.resnet1 = r2plus1d_18()
-        self.dropout_emb = 0.2
+        self.dropout_emb = 0
         self.resnet1.stem[0] = nn.Conv3d(11, 45, kernel_size=(1, 7, 7), stride=(1, 2, 2), padding=(0, 3, 3), bias=False)
         self.resnet1.fc = nn.Sequential(
             nn.Linear(512, 384),
