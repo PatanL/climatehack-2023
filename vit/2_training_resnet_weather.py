@@ -40,11 +40,11 @@ print(f"train dataset len: {len(dataset)}")
 
 
 EPOCHS = 200
-START_EPOCH = 2
-LR = 4e-4
+START_EPOCH = 27
+LR = 8e-4
 from submission.model import OurResnet2
 model = OurResnet2(image_size=128, device=device).to(device)
-model.load_state_dict(torch.load("/home/dsingh/source/devksingh4/climatehack-2023/vit/cpts/ExtraEmbedding_TemporalResnet2+1Combo-DeepFC-ep2.pt"))
+model.load_state_dict(torch.load("/home/dsingh/source/devksingh4/climatehack-2023/vit/cpts/ExtraEmbedding_TemporalResnet2+1Combo-DeepFC-ep27.pt"))
 criterion = nn.L1Loss()
 optimiser = optim.AdamW(model.parameters(), lr=LR, weight_decay=0.02)
 lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=10, eta_min=5e-5)

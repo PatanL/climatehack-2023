@@ -18,7 +18,7 @@ class Evaluator(BaseEvaluator):
         """Sets up anything required for evaluation, e.g. loading a model."""
         if not model:
             self.model = Model().to(device)
-            self.model.load_state_dict(torch.load("/home/dsingh/source/devksingh4/climatehack-2023/vit/cpts/ExtraEmbedding_TemporalResnet2+1Combo-DeepFC-ep7.pt", map_location=device))
+            self.model.load_state_dict(torch.load("ExtraEmbedding_TemporalResnet2+1Combo-DeepFC-ep23.pt", map_location=device))
         else:
             self.model = model
         self.model.eval()
