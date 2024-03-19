@@ -14,7 +14,7 @@ import json
 import numpy as np
 from tqdm import tqdm
 import h5py
-
+import hdf5plugin
 plt.rcParams["figure.figsize"] = (20, 12)
 
 # https://www.worlddata.info/europe/united-kingdom/sunset.php
@@ -50,7 +50,7 @@ def get_image_times(year, month):
         current_time = datetime.combine(date, start_time)
         
         while current_time.time() < end_time:
-            if current_time and np.random.rand() < 0.16:
+            if current_time and np.random.rand() < 0.8:
                 yield current_time
                 
             minutes_to_add = int(np.random.choice([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]))
@@ -69,16 +69,16 @@ def worker(dates, sat_type):
         }
     sites = list(site_locations[sat_type].keys())
     
-    pv_metadata_file = "./data/pv/metadata.csv"
+    pv_metadata_file = "/data/pv/metadata.csv"
     with open(pv_metadata_file, "r") as f:
         pv_metadata = pd.read_csv(f)
         pv_metadata.set_index("ss_id", inplace=True)
       
     i_train, i_val = -1, -1
     for year, month in dates:       
-        pv_file_path = f"./data/pv/{year}/{month}.parquet"
-        sat_file_path = f"./data/satellite-{sat_type}/{year}/{month}.zarr.zip"
-        nwp_file_path = f"./data/weather/{year}/{month}.zarr.zip"
+        pv_file_path = f"/data/pv/{year}/{month}.parquet"
+        sat_file_path = f"/data/satellite-{sat_type}/{year}/{month}.zarr.zip"
+        nwp_file_path = f"/data/weather/{year}/{month}.zarr.zip"
         
         pv_data = pd.read_parquet(pv_file_path).drop("generation_wh", axis=1)
         sat_data = xr.open_dataset(sat_file_path, engine="zarr", chunks="auto", consolidated=True)
@@ -101,7 +101,7 @@ def worker(dates, sat_type):
                 continue
 
             for site in sites:
-                if np.random.rand() < 0.55:
+                if np.random.rand() < 0.7:
                     continue
                 try:
                     # Get solar PV features and targets
@@ -173,11 +173,11 @@ def worker(dates, sat_type):
                     # Validation on 2021, training on 2020
                     if year == 2021:
                         # Get the next dataset index 
-                        set_type = "val"
+                        set_type = "train"
                         i_val += 1
                         yield i_val, set_type, (site_features, sat, nwp, extra, site_targets)
                     else:
-                        set_type = "train"
+                        set_type = "val"
                         i_train += 1
                         yield i_train, set_type, (site_features, sat, nwp, extra, site_targets)
                 
@@ -188,8 +188,8 @@ def worker(dates, sat_type):
 
 def process_data(sat_type):
     with (
-        h5py.File(f'./data/processed_data/processed_train.hdf5', 'w') as f_train,
-        h5py.File(f'./data/processed_data/processed_val.hdf5', 'w') as f_val,
+        h5py.File(f'/data/processed_data/processed_train_{os.environ["START_MONTH"]}.hdf5', 'w') as f_train,
+        h5py.File(f'/data/processed_data/processed_val_{os.environ["START_MONTH"]}.hdf5', 'w') as f_val,
         ):
             f_pv = f_train.create_group('pv')
             f_sat = f_train.create_group(sat_type)
@@ -203,7 +203,7 @@ def process_data(sat_type):
             f_extra_val = f_val.create_group('extra')
             f_y_val = f_val.create_group('y')
         
-            for i, set_type, data in tqdm(worker([(year, month) for year in range(2020, 2022) for month in range(1, 13)], sat_type)):
+            for i, set_type, data in tqdm(worker([(year, month) for year in range(2021, 2022) for month in range(int(os.environ['START_MONTH']), int(os.environ['END_MONTH']) + 1)], sat_type)):
                 # (pv, sat, nwp, extra, y) = data
                 if set_type == "train":
                     f_pv.create_dataset(f'data_{i}', data=data[0], compression="lzf")
@@ -221,4 +221,4 @@ def process_data(sat_type):
 NWP_FEATURES = ["t_500", "clcl", "alb_rad", "tot_prec", "ww", "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000"]
 # NWP_FEATURES = ["t_500", "clct", "alb_rad", "tot_prec", "aswdifd_s"]
 EXTRA_FEATURES = ["latitude_rounded", "longitude_rounded", "orientation", "tilt"]
-process_data(sat_type="hrv")
+process_data(sat_type="nonhrv")

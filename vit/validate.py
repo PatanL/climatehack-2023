@@ -5,7 +5,7 @@ import numpy as np
 
 from submission.run import Evaluator
 
-DATA_PATH = "data/validation/data.hdf5"
+DATA_PATH = "/data/validation/data.hdf5"
 
 
 def main(model):

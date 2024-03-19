@@ -7,29 +7,46 @@ import numpy as np
 
 BATCH_SIZE = 32
 class HDF5Dataset(Dataset):
-    def __init__(self, file, pv, sat, nwp, extra):
-        self.file = file
+    def __init__(self, files, pv, sat, nwp, extra):
+        self.files = files
         self.pv = pv
         self.sat = sat
         self.nwp = nwp
         self.extra = extra
+        self.length = 0
+        self.individual_lens = []
         # Open the file quickly to get the number of keys
-        with h5py.File(self.file, 'r') as f:
-            self.length = len(f['pv'])
+        for file in self.files:
+            print(f"Opening file {file}.")
+            with h5py.File(file, 'r') as f:
+                l = len(f['pv'])
+                self.length += l
+                self.individual_lens.append(l)
 
     def __len__(self):
         return self.length - 1
 
     def __getitem__(self, idx):
-        # Open the file each time to ensure lazy loading
-        with h5py.File(self.file, 'r') as f:
+        if idx < 0 or idx >= self.length:
+            raise IndexError(f"Index {idx} is out of bounds for dataset of length {self.length}")
+        
+        # find which file and local index this global idx maps to
+        cumsum = 0
+        for file_idx, length in enumerate(self.individual_lens):
+            if idx < cumsum + length:
+                break
+            cumsum += length
+        else:
+            raise IndexError("Failed to locate file for index")
+        
+        with h5py.File(self.files[file_idx], 'r') as f:
             data_name = f'data_{idx}'
             data = []
             
             if self.pv:
                 data.append(torch.from_numpy(f['pv'][data_name][...]))
             if self.sat:
-                data.append(torch.from_numpy(f['hrv'][data_name][...]))
+                data.append(torch.from_numpy(f['nonhrv'][data_name][...]))
             if self.nwp:
                 data.append(torch.from_numpy(f['nwp'][data_name][...]))
             if self.extra:
