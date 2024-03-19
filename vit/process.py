@@ -222,7 +222,7 @@ def process_data(sat_type):
                     f_nwp_val.create_dataset(f'data_{i}', data=data[2], compression="lzf")
                     f_extra_val.create_dataset(f'data_{i}', data=data[3], compression="lzf")
                     f_y_val.create_dataset(f'data_{i}', data=data[4], compression="lzf")
-                    f_y_val.create_dataset(f'data_{i}', data=data[5], compression="lzf")
+                    f_time_val.create_dataset(f'data_{i}', data=data[5], compression="lzf")
 
 
 NWP_FEATURES = ["t_500", "clcl", "alb_rad", "tot_prec", "ww", "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000"]
