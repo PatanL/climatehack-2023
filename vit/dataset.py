@@ -156,7 +156,8 @@ class ChallengeDataset(Dataset):
         return file_idx, idx
 
     def __getitem__(self, idx):
-        # idx 0 is site 0 timestep 0, idx 1 is site 1 timestep 0, and so on...
+        # idx 0 is site 0 timestep 0, idx 1 is site 1 timestep 0, and so on...o
+        orig = idx
         file_idx, idx = self.find_file_idx(idx)
         filename = self.sat[file_idx]
 
@@ -173,6 +174,10 @@ class ChallengeDataset(Dataset):
             ),
             drop_level=False,
         ).xs(site, level=1).to_numpy().squeeze(-1)
+        try:
+            assert pv_features.shape == (12,) and pv_targets.shape == (48,)
+        except:
+            return self.__getitem__(orig + 1)
 
         # sat data
         hrv = self.open_xarray(filename, drop=False)
@@ -180,6 +185,11 @@ class ChallengeDataset(Dataset):
         x, y = self._site_locations["nonhrv"][site]
         hrv_features = hrv_data[:, :, y - 64 : y + 64, x - 64 : x + 64]
 
+        try:
+            assert hrv_features.shape == (11, 12, 128, 128)
+        except:
+            return self.__getitem__(orig + 1)
+        
         # weather data
         weather = self.open_xarray(self.weather[file_idx], drop=False)
         x, y = self._site_locations["weather"][site]
@@ -193,4 +203,4 @@ class ChallengeDataset(Dataset):
             pv_metadata.set_index("ss_id", inplace=True)
             extra = pv_metadata.loc[site, EXTRA_FEATURES].to_numpy().astype(np.float32)
 
-        return pv_features, hrv_features, weather_features, extra, pv_targets
+        return pv_features, hrv_features, np.expand_dims(weather_features, axis=0), extra, pv_targets
