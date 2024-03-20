@@ -10,6 +10,7 @@ import xarray as xr
 import pandas as pd
 import sys
 import h5py
+import time as tfs
 
 BATCH_SIZE = 32
 class HDF5Dataset(Dataset):
@@ -102,6 +103,12 @@ class ChallengeDataset(Dataset):
         self.len = sum(self.individual_lens)
         self.num_sites = len(self._sites)
         self.pv_metadata_file = "/data/pv/metadata.csv"
+        self.weather_times = []
+        for idx in range(0, 12):
+            with h5py.File(self.weather[idx], "r") as hdf_file:
+                time2 = np.array(hdf_file['time'])
+                time2 = np.array(list(map(lambda x: datetime.utcfromtimestamp(int(x)), time2)))
+                self.weather_times.append(time2)
 
     def __len__(self):
         return self.len
@@ -162,6 +169,7 @@ class ChallengeDataset(Dataset):
 
     def __getitem__(self, idx):
         # idx 0 is site 0 timestep 0, idx 1 is site 1 timestep 0, and so on...o
+        start = tfs.time()
         orig = idx
         file_idx, idx = self.find_file_idx(idx)
         filename = self.sat[file_idx]
@@ -169,6 +177,10 @@ class ChallengeDataset(Dataset):
         timestep, site = self.time_index[file_idx][idx]
         time = timestep.to_pydatetime().replace(tzinfo=None)
         first_hour = slice(str(time), str(time + timedelta(minutes=55)))
+        
+        finish_setup = tfs.time()
+        print("setup:", finish_setup - start)
+
         # get pv features and target 
         pv = self.open_parquet(self.pv[file_idx], file_idx)
         pv_features = pv.xs(first_hour, drop_level=False).xs(site, level=1).to_numpy().squeeze(-1)
@@ -184,6 +196,8 @@ class ChallengeDataset(Dataset):
         except:
             return self.__getitem__(orig + 1)
 
+        pv = tfs.time()
+        print("pv:", pv - finish_setup)
         # sat data
         hrv = self.open_xarray(filename, drop=False)
         hrv_data = hrv["data"].sel(time=first_hour).to_numpy().transpose(3, 0, 1, 2)
@@ -195,11 +209,12 @@ class ChallengeDataset(Dataset):
         except:
             return self.__getitem__(orig + 1)
         
+        sat = tfs.time()
+        print("sat:", sat - pv)
         # weather data
         with h5py.File(self.weather[file_idx], "r") as hdf_file:
             x, y = self._site_locations["weather"][site]
-            time2 = np.array(hdf_file['time'])
-            time2 = np.array(list(map(lambda x: datetime.utcfromtimestamp(int(x)), time2)))
+            time2 = self.weather_times[file_idx]
             all_weather_features = 0
             n = self.hdf5_sel(time2, time + timedelta(hours=-1), time + timedelta(hours=4))
             nth_values = []
@@ -224,11 +239,17 @@ class ChallengeDataset(Dataset):
             else:
                 all_weather_features = np.stack((all_weather_features, weather_features), axis=1)
 
+        weather = tfs.time()
+        print("weather:", weather - sat)
+
         EXTRA_FEATURES = ["latitude_rounded", "longitude_rounded", "orientation", "tilt"]
         # get extra data 
         with open(self.pv_metadata_file, "r") as f:
             pv_metadata = pd.read_csv(f)
             pv_metadata.set_index("ss_id", inplace=True)
             extra = pv_metadata.loc[site, EXTRA_FEATURES].to_numpy().astype(np.float32)
+
+        ex = tfs.time()
+        print("extra:", ex - weather)
 
         return pv_features, hrv_features, all_weather_features, extra, pv_targets
