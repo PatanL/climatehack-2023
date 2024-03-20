@@ -9,6 +9,7 @@ from tqdm import tqdm
 import xarray as xr
 import pandas as pd
 import sys
+import h5py
 
 BATCH_SIZE = 32
 class HDF5Dataset(Dataset):
@@ -93,7 +94,7 @@ def l_shuffle(pvs, hrvs, weathers):
 class ChallengeDataset(Dataset):
     def __init__(self, pvs, hrvs, weathers, site_locations, metadata, sites=None):
         self.time_index = []
-        self.pv, self.sat, self.weather, = [pvs + f"{i}.parquet" for i in range(1, 13)], [hrvs + f"{i}.zarr" for i in range(1, 13)], [weathers + f"{i}.zarr" for i in range(1, 13)]
+        self.pv, self.sat, self.weather, = [pvs + f"{i}.parquet" for i in range(1, 13)], [hrvs + f"{i}.zarr" for i in range(1, 13)], [weathers + f"{i}.hdf5" for i in range(1, 13)]
         self.individual_lens = self.compute_file_lens(pvs)
         self._site_locations = site_locations
         self._sites = sites if sites else list(site_locations["nonhrv"].keys())
@@ -138,6 +139,10 @@ class ChallengeDataset(Dataset):
             return ds.where(ds['time'].dt.minute == 0, drop=True)
         else:
             return ds
+
+    def hdf5_sel(self, times, start, stop):
+        return np.where((times >= start) & (times <=stop))[0]
+
 
     @lru_cache(None)
     def find_file_idx(self, idx):
@@ -191,10 +196,33 @@ class ChallengeDataset(Dataset):
             return self.__getitem__(orig + 1)
         
         # weather data
-        weather = self.open_xarray(self.weather[file_idx], drop=False)
-        x, y = self._site_locations["weather"][site]
-        weather_features = np.squeeze(weather.sel(time=first_hour).to_array().to_numpy())
-        weather_features = weather_features[:, y - 64 : y + 64, x - 64 : x + 64]
+        with h5py.File(self.weather[file_idx], "r") as hdf_file:
+            x, y = self._site_locations["weather"][site]
+            time2 = np.array(hdf_file['time'])
+            time2 = np.array(list(map(lambda x: datetime.utcfromtimestamp(int(x)), time2)))
+            all_weather_features = 0
+            n = self.hdf5_sel(time2, time + timedelta(hours=-1), time + timedelta(hours=4))
+            nth_values = []
+            SKIP_LIST = set(['latitude', 'longitude', 'time'])
+            for name, dataset in hdf_file.items():
+                # Check if the item is a dataset
+                if name in SKIP_LIST: 
+                    continue
+                if isinstance(dataset, h5py.Dataset):
+                    # Fetch the nth value from the dataset
+                    # Ensuring n is within the bounds of the dataset's size
+                    if n.all() < len(dataset):
+                        nth_value = dataset[n]
+                        # Append the nth value as a numpy array
+                        nth_values.append(np.array(nth_value)[:, y - 64 : y + 64, x - 64 : x + 64])
+                    else:
+                        # Handle cases where n exceeds dataset size
+                        print(f"Dataset '{name}' does not have a {n}th value.")
+            weather_features = np.stack(nth_values, axis=0)
+            if type(all_weather_features) == type(0):
+                all_weather_features = weather_features
+            else:
+                all_weather_features = np.stack((all_weather_features, weather_features), axis=1)
 
         EXTRA_FEATURES = ["latitude_rounded", "longitude_rounded", "orientation", "tilt"]
         # get extra data 
@@ -203,4 +231,4 @@ class ChallengeDataset(Dataset):
             pv_metadata.set_index("ss_id", inplace=True)
             extra = pv_metadata.loc[site, EXTRA_FEATURES].to_numpy().astype(np.float32)
 
-        return pv_features, hrv_features, np.expand_dims(weather_features, axis=0), extra, pv_targets
+        return pv_features, hrv_features, all_weather_features, extra, pv_targets
