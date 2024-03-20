@@ -16,6 +16,10 @@ from tqdm import tqdm
 import h5py
 import hdf5plugin
 plt.rcParams["figure.figsize"] = (20, 12)
+START_MONTH = int(os.environ["START_MONTH"])
+END_MONTH = int(os.environ["END_MONTH"])
+assert END_MONTH >= START_MONTH
+MAX_SAMPLES = 26250 * (END_MONTH - START_MONTH + 1)
 
 # https://www.worlddata.info/europe/united-kingdom/sunset.php
 month_to_times = {
@@ -196,7 +200,7 @@ def process_data(sat_type):
             f_nwp = f_train.create_group('nwp')
             f_extra = f_train.create_group('extra')
             f_y = f_train.create_group('y')
-            f_time = f_train.create_group('first_hour')
+            # f_time = f_train.create_group('first_hour')
 
         
             f_pv_val = f_val.create_group('pv')
@@ -204,7 +208,7 @@ def process_data(sat_type):
             f_nwp_val = f_val.create_group('nwp')
             f_extra_val = f_val.create_group('extra')
             f_y_val = f_val.create_group('y')
-            f_time_val = f_val.create_group('first_hour')
+            # f_time_val = f_val.create_group('first_hour')
 
         
             for i, set_type, data in tqdm(worker([(year, month) for year in range(2021, 2022) for month in range(int(os.environ['START_MONTH']), int(os.environ['END_MONTH']) + 1)], sat_type)):
@@ -215,14 +219,16 @@ def process_data(sat_type):
                     f_nwp.create_dataset(f'data_{i}', data=data[2], compression="lzf")
                     f_extra.create_dataset(f'data_{i}', data=data[3], compression="lzf")
                     f_y.create_dataset(f'data_{i}', data=data[4])
-                    f_time.create_dataset(f'data_{i}', data=data[5])
+                    # f_time.create_dataset(f'data_{i}', data=data[5])
                 else:                    
                     f_pv_val.create_dataset(f'data_{i}', data=data[0], compression="lzf")
                     f_sat_val.create_dataset(f'data_{i}', data=data[1], compression="lzf")
                     f_nwp_val.create_dataset(f'data_{i}', data=data[2], compression="lzf")
                     f_extra_val.create_dataset(f'data_{i}', data=data[3], compression="lzf")
                     f_y_val.create_dataset(f'data_{i}', data=data[4], compression="lzf")
-                    f_time_val.create_dataset(f'data_{i}', data=data[5], compression="lzf")
+                    # f_time_val.create_dataset(f'data_{i}', data=data[5], compression="lzf")
+                if i >= MAX_SAMPLES:
+                    break
 
 
 NWP_FEATURES = ["t_500", "clcl", "alb_rad", "tot_prec", "ww", "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000"]

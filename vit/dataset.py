@@ -4,6 +4,11 @@ import h5py
 import hdf5plugin
 from datetime import datetime, time, timedelta
 import numpy as np
+from functools import lru_cache
+from tqdm import tqdm
+import xarray as xr
+import pandas as pd
+import sys
 
 BATCH_SIZE = 32
 class HDF5Dataset(Dataset):
@@ -18,15 +23,22 @@ class HDF5Dataset(Dataset):
         # Open the file quickly to get the number of keys
         for file in self.files:
             print(f"Opening file {file}.")
-            with h5py.File(file, 'r') as f:
-                l = len(f['pv'])
-                self.length += l
-                self.individual_lens.append(l)
+            try:
+                with h5py.File(file, 'r') as f:
+                    l = len(f['pv'])
+                    self.length += l - 1
+                    self.individual_lens.append(l)
+            except Exception as e:
+               print(e)
+               pass
+        print("Warming up the dataloader!")
+        for i in tqdm(range(self.length)):
+            self.find_file_idx(i)
 
     def __len__(self):
-        return self.length - 1
-
-    def __getitem__(self, idx):
+        return self.length
+    @lru_cache(None)
+    def find_file_idx(self, idx):
         if idx < 0 or idx >= self.length:
             raise IndexError(f"Index {idx} is out of bounds for dataset of length {self.length}")
         
@@ -34,11 +46,14 @@ class HDF5Dataset(Dataset):
         cumsum = 0
         for file_idx, length in enumerate(self.individual_lens):
             if idx < cumsum + length:
+                idx -= cumsum
                 break
             cumsum += length
         else:
             raise IndexError("Failed to locate file for index")
-        
+        return file_idx, idx
+    def __getitem__(self, idx):
+        file_idx, idx = self.find_file_idx(idx)
         with h5py.File(self.files[file_idx], 'r') as f:
             data_name = f'data_{idx}'
             data = []
@@ -54,133 +69,128 @@ class HDF5Dataset(Dataset):
                 
             data.append(torch.from_numpy(f['y'][data_name][...]))
             return data
-        
+
 month_to_times = {
-    1: (time(8), time(16)),
-    2: (time(8), time(17)),
-    3: (time(7), time(18)),
-    4: (time(7), time(19)),
-    5: (time(6), time(20)),
-    6: (time(5), time(20)),
-    7: (time(5), time(20)),
-    8: (time(6), time(20)),
-    9: (time(7), time(19)),
-    10: (time(7), time(18)),
-    11: (time(7), time(16)),
-    12: (time(8), time(16))
+    1: (8, 16),
+    2: (8, 17),
+    3: (7, 18),
+    4: (7, 19),
+    5: (6, 20),
+    6: (5, 20),
+    7: (5, 20),
+    8: (6, 20),
+    9: (7, 19),
+    10: (7, 18),
+    11: (7, 16),
+    12: (8, 16)
 }
 
+def l_shuffle(pvs, hrvs, weathers):
+   p = np.random.permutation(len(pvs))
+   return list(np.array(pvs)[p]), list(np.array(hrvs)[p]), list(np.array(weathers)[p]), p
 
-class ChallengeDataset(IterableDataset):
-    def __init__(self, pv, hrv, weather, site_locations, metadata, sites=None):
-        self.pv = pv
-        self.hrv = hrv
-        self.weather = weather
+      
+class ChallengeDataset(Dataset):
+    def __init__(self, pvs, hrvs, weathers, site_locations, metadata, sites=None):
+        self.time_index = []
+        self.pv, self.sat, self.weather, = [pvs + f"{i}.parquet" for i in range(1, 13)], [hrvs + f"{i}.zarr" for i in range(1, 13)], [weathers + f"{i}.zarr" for i in range(1, 13)]
+        self.individual_lens = self.compute_file_lens(pvs)
         self._site_locations = site_locations
-        self._sites = sites if sites else list(site_locations["hrv"].keys())
+        self._sites = sites if sites else list(site_locations["nonhrv"].keys())
         self.metadata = metadata
-        self.len = 0
-        for _ in self._get_image_times():
-            self.len += 1
-        
+        self.len = sum(self.individual_lens)
+        self.num_sites = len(self._sites)
+        self.pv_metadata_file = "/data/pv/metadata.csv"
 
     def __len__(self):
         return self.len
 
-    def _get_image_times(self):
-        min_date = datetime(2020, 1, 1)
-        max_date = datetime(2020, 12, 31)
+    def compute_file_lens(self, filenames):
+        lens = []
+        for i in range(1, 13):
+            file = filenames + f"{i}.parquet"
+            pv = self.open_parquet(file, i-1)
+            pv = pv[pv.index.get_level_values('timestamp').minute == 0]
+            help = list(pv.index)
+            self.time_index.append(help)
+            lens.append(len(help))
+        return lens
 
-        date = min_date
-        while date <= max_date:
-            month = date.month
-            start_time, end_time = month_to_times[month]
-            current_time = datetime.combine(date, start_time)
-            while current_time.time() < end_time:
-                if current_time:
-                    yield current_time
+    @lru_cache(None)
+    def open_parquet(self, filename, file_idx=-1):
+        if file_idx == -1:
+            return pd.read_parquet(filename).drop("generation_wh", axis=1)
+        else:
+            start, stop = month_to_times[file_idx + 1]
+            df = pd.read_parquet(filename).drop("generation_wh", axis=1)
+            df = df[df.index.get_level_values('timestamp').hour >= start]
+            return df[df.index.get_level_values('timestamp').hour <= stop]
 
-                current_time += timedelta(minutes=60)
+    @lru_cache(None)
+    def open_xarray(self, filename, drop=True):
+        ds = xr.open_dataset(
+            filename,
+            engine="zarr",
+            consolidated=True,
+            chunks={"time": "auto"}
+        )
+        if drop:
+            return ds.where(ds['time'].dt.minute == 0, drop=True)
+        else:
+            return ds
 
-            date += timedelta(days=1)
+    @lru_cache(None)
+    def find_file_idx(self, idx):
+        if idx < 0 or idx >= self.len:
+            raise IndexError(f"Index {idx} is out of bounds for dataset of length {self.length}")
+        
+        # find which file and local index this global idx maps to
+        cumsum = 0
+        for file_idx, length in enumerate(self.individual_lens):
+            if idx < cumsum + length:
+                idx -= cumsum
+                break
+            cumsum += length
+        else:
+            raise IndexError("Failed to locate file for index")
+        return file_idx, idx
 
-    def __iter__(self):
-        for time in self._get_image_times():
-            first_hour = slice(str(time), str(time + timedelta(minutes=55)))
+    def __getitem__(self, idx):
+        # idx 0 is site 0 timestep 0, idx 1 is site 1 timestep 0, and so on...
+        file_idx, idx = self.find_file_idx(idx)
+        filename = self.sat[file_idx]
 
-            pv_features = self.pv.xs(first_hour, drop_level=False)  # type: ignore
-            pv_targets = self.pv.xs(
-                slice(  # type: ignore
-                    str(time + timedelta(hours=1)),
-                    str(time + timedelta(hours=4, minutes=55)),
-                ),
-                drop_level=False,
-            )
+        timestep, site = self.time_index[file_idx][idx]
+        time = timestep.to_pydatetime().replace(tzinfo=None)
+        first_hour = slice(str(time), str(time + timedelta(minutes=55)))
+        # get pv features and target 
+        pv = self.open_parquet(self.pv[file_idx], file_idx)
+        pv_features = pv.xs(first_hour, drop_level=False).xs(site, level=1).to_numpy().squeeze(-1)
+        pv_targets = pv.xs(
+            slice(  # type: ignore
+                str(time + timedelta(hours=1)),
+                str(time + timedelta(hours=4, minutes=55)),
+            ),
+            drop_level=False,
+        ).xs(site, level=1).to_numpy().squeeze(-1)
 
-            hrv_data = self.hrv["data"].sel(time=first_hour).to_numpy()
+        # sat data
+        hrv = self.open_xarray(filename, drop=False)
+        hrv_data = hrv["data"].sel(time=first_hour).to_numpy().transpose(3, 0, 1, 2)
+        x, y = self._site_locations["nonhrv"][site]
+        hrv_features = hrv_data[:, :, y - 64 : y + 64, x - 64 : x + 64]
 
-            for site in self._sites:
-                try:
-                    # Get solar PV features and targets
-                    site_features = pv_features.xs(site, level=1).to_numpy().squeeze(-1)
-                    site_targets = pv_targets.xs(site, level=1).to_numpy().squeeze(-1)
-                    assert site_features.shape == (12,) and site_targets.shape == (48,)
+        # weather data
+        weather = self.open_xarray(self.weather[file_idx], drop=False)
+        x, y = self._site_locations["weather"][site]
+        weather_features = np.squeeze(weather.sel(time=first_hour).to_array().to_numpy())
+        weather_features = weather_features[:, y - 64 : y + 64, x - 64 : x + 64]
 
-                    # Get a 128x128 HRV crop centred on the site over the previous hour
-                    x, y = self._site_locations["hrv"][site]
-                    hrv_features = hrv_data[:, y - 64 : y + 64, x - 64 : x + 64, 0]
-                    assert hrv_features.shape == (12, 128, 128)
+        EXTRA_FEATURES = ["latitude_rounded", "longitude_rounded", "orientation", "tilt"]
+        # get extra data 
+        with open(self.pv_metadata_file, "r") as f:
+            pv_metadata = pd.read_csv(f)
+            pv_metadata.set_index("ss_id", inplace=True)
+            extra = pv_metadata.loc[site, EXTRA_FEATURES].to_numpy().astype(np.float32)
 
-                    # weather
-                    nwp_features_arr = []
-                    nan_nwp = False
-                    x_nwp, y_nwp = self._site_locations["weather"][site]
-                    for feature in ["t_500", "clcl", "alb_rad", "tot_prec", "ww", "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000"]:
-                        data = self.weather[feature].sel(time=first_hour).to_numpy()
-                        if data.shape[0] != 6 or np.isnan(data).any():
-                            nan_nwp = True
-                            break
-                        data = data[:, y_nwp - 64 : y_nwp + 64, x_nwp - 64 : x_nwp + 64]
-                        assert data.shape == (6, 128, 128)
-                        nwp_features_arr.append(data)
-                    if nan_nwp:
-                        continue
-                    nwp = np.stack(nwp_features_arr, axis=0)
-
-                    # extra data
-                    extra = self.metadata.loc[site, ["latitude_rounded", "longitude_rounded", "orientation", "tilt"]].to_numpy().astype(np.float32)
-                    assert extra.shape == (4,)
-                    # How might you adapt this for the non-HRV, weather and aerosol data?
-                except:
-                    continue
-
-                yield site_features, hrv_features, nwp, extra, site_targets
-class ShuffleDataset(torch.utils.data.IterableDataset):
-  def __init__(self, dataset, buffer_size):
-    super().__init__()
-    self.dataset = dataset
-    self.buffer_size = buffer_size
-  def __len__(self):
-     return len(self.dataset)
-  def __iter__(self):
-    shufbuf = []
-    try:
-      dataset_iter = iter(self.dataset)
-      for i in range(self.buffer_size):
-        shufbuf.append(next(dataset_iter))
-    except:
-      self.buffer_size = len(shufbuf)
-
-    try:
-      while True:
-        try:
-          item = next(dataset_iter)
-          evict_idx = random.randint(0, self.buffer_size - 1)
-          yield shufbuf[evict_idx]
-          shufbuf[evict_idx] = item
-        except StopIteration:
-          break
-      while len(shufbuf) > 0:
-        yield shufbuf.pop()
-    except GeneratorExit:
-      pass
+        return pv_features, hrv_features, weather_features, extra, pv_targets
