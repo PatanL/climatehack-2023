@@ -11,7 +11,7 @@ import pandas as pd
 import sys
 import h5py
 import time as tfs
-
+import os
 BATCH_SIZE = 32
 class HDF5Dataset(Dataset):
     def __init__(self, files, pv, sat, nwp, extra):
@@ -92,23 +92,32 @@ def l_shuffle(pvs, hrvs, weathers):
    return list(np.array(pvs)[p]), list(np.array(hrvs)[p]), list(np.array(weathers)[p]), p
 
       
+import h5py
+import pandas as pd
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+
+import cartopy.crs as ccrs
+import numpy as np
+import xarray as xr
+
+# Assuming the rest of the ChallengeDataset class remains the same
+    
 class ChallengeDataset(Dataset):
-    def __init__(self, pvs, hrvs, weathers, site_locations, metadata, sites=None):
-        self.time_index = []
-        self.pv, self.sat, self.weather, = [pvs + f"{i}.parquet" for i in range(1, 13)], [hrvs + f"{i}.zarr" for i in range(1, 13)], [weathers + f"{i}.hdf5" for i in range(1, 13)]
-        self.individual_lens = self.compute_file_lens(pvs)
+    def __init__(self, hdf5_file, site_locations, metadata, nwp_file_path, hrv_file_path, sites=None):
+        self.hdf5_file = hdf5_file
         self._site_locations = site_locations
-        self._sites = sites if sites else list(site_locations["nonhrv"].keys())
         self.metadata = metadata
-        self.len = sum(self.individual_lens)
-        self.num_sites = len(self._sites)
-        self.pv_metadata_file = "/data/pv/metadata.csv"
-        self.weather_times = []
-        for idx in range(0, 12):
-            with h5py.File(self.weather[idx], "r") as hdf_file:
-                time2 = np.array(hdf_file['time'])
-                time2 = np.array(list(map(lambda x: datetime.utcfromtimestamp(int(x)), time2)))
-                self.weather_times.append(time2)
+        self.nwp_file_path = nwp_file_path
+        self.hrv_file_path = hrv_file_path
+
+        with h5py.File(self.hdf5_file, 'r') as file:
+            available_keys = list(file['pv'].keys())
+            self._sites = [site for site in (sites if sites else site_locations["nonhrv"].keys()) if f'data_{site}' in available_keys]
+
+            self.individual_lens = [len(file['pv'][f'data_{site}']) for site in self._sites]
+            self.len = sum(self.individual_lens)
 
     def __len__(self):
         return self.len
@@ -119,9 +128,7 @@ class ChallengeDataset(Dataset):
             file = filenames + f"{i}.parquet"
             pv = self.open_parquet(file, i-1)
             pv = pv[pv.index.get_level_values('timestamp').minute == 0]
-            help = list(pv.index)
-            self.time_index.append(help)
-            lens.append(len(help))
+            lens.append(len(pv.index))
         return lens
 
     @lru_cache(None)
@@ -131,125 +138,75 @@ class ChallengeDataset(Dataset):
         else:
             start, stop = month_to_times[file_idx + 1]
             df = pd.read_parquet(filename).drop("generation_wh", axis=1)
-            df = df[df.index.get_level_values('timestamp').hour >= start]
-            return df[df.index.get_level_values('timestamp').hour <= stop]
+            return df[(df.index.get_level_values('timestamp').hour >= start) & (df.index.get_level_values('timestamp').hour <= stop)]
 
     @lru_cache(None)
     def open_xarray(self, filename, drop=True):
-        ds = xr.open_dataset(
-            filename,
-            engine="zarr",
-            consolidated=True,
-            chunks={"time": "auto"}
-        )
-        if drop:
-            return ds.where(ds['time'].dt.minute == 0, drop=True)
-        else:
-            return ds
-
-    def hdf5_sel(self, times, start, stop):
-        return np.where((times >= start) & (times <=stop))[0]
-
+        ds = xr.open_dataset(filename, engine="zarr", consolidated=True, chunks={"time": "auto"})
+        return ds.where(ds['time'].dt.minute == 0, drop=True) if drop else ds
 
     @lru_cache(None)
     def find_file_idx(self, idx):
         if idx < 0 or idx >= self.len:
-            raise IndexError(f"Index {idx} is out of bounds for dataset of length {self.length}")
+            raise IndexError("Index out of bounds for dataset length")
         
-        # find which file and local index this global idx maps to
         cumsum = 0
         for file_idx, length in enumerate(self.individual_lens):
             if idx < cumsum + length:
-                idx -= cumsum
-                break
+                return file_idx, idx - cumsum
             cumsum += length
-        else:
-            raise IndexError("Failed to locate file for index")
-        return file_idx, idx
+        raise IndexError("Failed to locate file for index")
+
+    def get_nwp_features(self, nwp_data, nwp_coords, nwp_hours):
+        NWP_FEATURES = ["t_500", "clcl", "alb_rad", "tot_prec", "ww", "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000"]
+        cropped_features = {}
+        for feature in NWP_FEATURES:
+            feature_data = nwp_data[feature].sel(time=nwp_hours)
+            lat_min, lat_max, lon_min, lon_max = nwp_coords
+            cropped_feature_data = feature_data.sel(latitude=slice(lat_min, lat_max), longitude=slice(lon_min, lon_max))
+            cropped_features[feature] = cropped_feature_data.to_numpy()
+        return cropped_features
+
+    def crop_hrv_data(self, hrv_data, coords):
+        x_min, x_max, y_min, y_max = coords
+        try:
+            cropped_hrv = hrv_data[:, y_min:y_max, x_min:x_max, :]
+            expected_shape = (hrv_data.shape[0], y_max - y_min, x_max - x_min, hrv_data.shape[3])
+            if cropped_hrv.shape != expected_shape:
+                raise ValueError("Cropped HRV data shape is incorrect")
+            return cropped_hrv.to_numpy()
+        except Exception as e:
+            return None
 
     def __getitem__(self, idx):
-        # idx 0 is site 0 timestep 0, idx 1 is site 1 timestep 0, and so on...o
-        start = tfs.time()
-        orig = idx
-        file_idx, idx = self.find_file_idx(idx)
-        filename = self.sat[file_idx]
-
-        timestep, site = self.time_index[file_idx][idx]
-        time = timestep.to_pydatetime().replace(tzinfo=None)
-        first_hour = slice(str(time), str(time + timedelta(minutes=55)))
-        
-        finish_setup = tfs.time()
-        print("setup:", finish_setup - start)
-
-        # get pv features and target 
-        pv = self.open_parquet(self.pv[file_idx], file_idx)
-        pv_features = pv.xs(first_hour, drop_level=False).xs(site, level=1).to_numpy().squeeze(-1)
-        pv_targets = pv.xs(
-            slice(  # type: ignore
-                str(time + timedelta(hours=1)),
-                str(time + timedelta(hours=4, minutes=55)),
-            ),
-            drop_level=False,
-        ).xs(site, level=1).to_numpy().squeeze(-1)
         try:
-            assert pv_features.shape == (12,) and pv_targets.shape == (48,)
-        except:
-            return self.__getitem__(orig + 1)
+            file_idx, local_idx = self.find_file_idx(idx)
+            site_key = f'data_{self._sites[file_idx]}'
 
-        pv = tfs.time()
-        print("pv:", pv - finish_setup)
-        # sat data
-        hrv = self.open_xarray(filename, drop=False)
-        hrv_data = hrv["data"].sel(time=first_hour).to_numpy().transpose(3, 0, 1, 2)
-        x, y = self._site_locations["nonhrv"][site]
-        hrv_features = hrv_data[:, :, y - 64 : y + 64, x - 64 : x + 64]
+            with h5py.File(self.hdf5_file, 'r') as file:
+                if site_key not in file['pv'] or site_key not in file['y']:
+                    raise ValueError("Data not found for site_key")
 
-        try:
-            assert hrv_features.shape == (11, 12, 128, 128)
-        except:
-            return self.__getitem__(orig + 1)
-        
-        sat = tfs.time()
-        print("sat:", sat - pv)
-        # weather data
-        with h5py.File(self.weather[file_idx], "r") as hdf_file:
-            x, y = self._site_locations["weather"][site]
-            time2 = self.weather_times[file_idx]
-            all_weather_features = 0
-            n = self.hdf5_sel(time2, time + timedelta(hours=-1), time + timedelta(hours=4))
-            nth_values = []
-            SKIP_LIST = set(['latitude', 'longitude', 'time'])
-            for name, dataset in hdf_file.items():
-                # Check if the item is a dataset
-                if name in SKIP_LIST: 
-                    continue
-                if isinstance(dataset, h5py.Dataset):
-                    # Fetch the nth value from the dataset
-                    # Ensuring n is within the bounds of the dataset's size
-                    if n.all() < len(dataset):
-                        nth_value = dataset[n]
-                        # Append the nth value as a numpy array
-                        nth_values.append(np.array(nth_value)[:, y - 64 : y + 64, x - 64 : x + 64])
-                    else:
-                        # Handle cases where n exceeds dataset size
-                        print(f"Dataset '{name}' does not have a {n}th value.")
-            weather_features = np.stack(nth_values, axis=0)
-            if type(all_weather_features) == type(0):
-                all_weather_features = weather_features
-            else:
-                all_weather_features = np.stack((all_weather_features, weather_features), axis=1)
+                pv_features = np.array(file['pv'][site_key][local_idx])
+                pv_targets = np.array(file['y'][site_key][local_idx])
 
-        weather = tfs.time()
-        print("weather:", weather - sat)
+                if 'nonhrv' not in self._site_locations:
+                    raise ValueError("Non-HRV satellite coordinates category not found in site_locations")
+                
+                new_key = int(site_key[5:])
+                if new_key not in self._site_locations['nonhrv']:
+                    raise ValueError("No satellite coordinates found for site_key within 'nonhrv' category")
 
-        EXTRA_FEATURES = ["latitude_rounded", "longitude_rounded", "orientation", "tilt"]
-        # get extra data 
-        with open(self.pv_metadata_file, "r") as f:
-            pv_metadata = pd.read_csv(f)
-            pv_metadata.set_index("ss_id", inplace=True)
-            extra = pv_metadata.loc[site, EXTRA_FEATURES].to_numpy().astype(np.float32)
+                sat_coords = self._site_locations['nonhrv'][new_key]
+                hrv_data = self.open_xarray(self.hrv_file_path)
+                center_x, center_y = sat_coords
+                coords = (center_x - 64, center_x + 63, center_y - 64, center_y + 63)
+                hrv_features = self.crop_hrv_data(hrv_data["data"], coords)
 
-        ex = tfs.time()
-        print("extra:", ex - weather)
+                if None in [pv_features, hrv_features, pv_targets]:
+                    raise ValueError("One or more return values are None")
 
-        return pv_features, hrv_features, all_weather_features, extra, pv_targets
+                return pv_features, hrv_features, pv_targets
+        except Exception as e:
+            return None
+

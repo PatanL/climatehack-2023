@@ -59,129 +59,151 @@ def get_image_times(year, month):
             
         date += timedelta(days=1)
 
-def worker(year, month, sat_type):  
-    # with open("../indices.json") as f:
-    #     site_locations = {
-    #         data_source: {
-    #             int(site): (int(location[0]), int(location[1]))
-    #             for site, location in locations.items()
-    #         }
-    #         for data_source, locations in json.load(f).items()
-    #     }
-    # sites = list(site_locations[sat_type].keys())
-    
-    # normalization_values = np.load("normalization_values.npy", allow_pickle=True).item()
-    # pv_metadata_file = "../data/pv/metadata_normalized.csv"
-    # with open(pv_metadata_file, "r") as f:
-    #     pv_metadata = pd.read_csv(f)
-    #     pv_metadata.set_index("ss_id", inplace=True)
-      
-    i = 0
-    pv_file_path = f"/data/pv/{year}/{month}.parquet"
-    sat_file_path = f"/data/satellite-{sat_type}/{year}/{month}.zarr.zip"
-    nwp_file_path = f"/data/weather/{year}/{month}.zarr.zip"
-    try:    
-        pv_data = pd.read_parquet(pv_file_path).drop("generation_wh", axis=1)
-    except:
-        pv_data = pd.read_parquet(pv_file_path)
-    sat_data = xr.open_dataset(sat_file_path, engine="zarr", chunks="auto", consolidated=True)
-    nwp_data = xr.open_dataset(nwp_file_path, engine="zarr", chunks="auto", consolidated=True)
-    
-    for time in get_image_times(year, month):
-        try:
-            first_hour = slice(str(time), str(time + timedelta(minutes=55)))
 
-            pv_features = pv_data.xs(first_hour, drop_level=False)  # type: ignore
-            pv_targets = pv_data.xs(
-                slice(  # type: ignore
-                    str(time + timedelta(hours=1)),
-                    str(time + timedelta(hours=4, minutes=55)),
-                ),
-                drop_level=False,
-            )
+import pandas as pd
+import xarray as xr
+import numpy as np
+import json
+from datetime import datetime, timedelta
+import pandas as pd
+import xarray as xr
+import numpy as np
+from datetime import datetime, timedelta
+import json
 
-            sat_features = sat_data["data"].sel(time=first_hour).to_numpy()
-            sat = sat_features.transpose(3, 0, 1, 2)
-            if sat.shape[0] != 11 or sat.shape[1] != 12 or np.isnan(sat).any():
-                continue
-            
-            # NWP HOURS: [T - 1h, T, T + 1h, T + 2h, T + 3h, T + 4h]. Granularity: 1hr
-            # where T is the forecast start time, NOT the past start time
-            T = time + timedelta(hours=1)
-                    
-            # Check if time is on the hour or not
-            if T.minute == 0:
-                nwp_hours = slice(str(T - timedelta(hours=1)), str(T + timedelta(hours=4)))
-            else:
-                nwp_hours = slice(str(T - timedelta(hours=1, minutes=time.minute)), str(T + timedelta(hours=4) - timedelta(minutes=time.minute)))
+# Presumed that NWP_FEATURES and EXTRA_FEATURES are defined globally
+NWP_FEATURES = ["t_500", "clcl", "alb_rad", "tot_prec", "ww", "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000"]
+EXTRA_FEATURES = ["latitude_rounded", "longitude_rounded", "orientation", "tilt"]
 
-            nan_nwp = False
-            nwp_features_arr = []
-            for feature in NWP_FEATURES:
-                data = nwp_data[feature].sel(time=nwp_hours).to_numpy()
-                            
-                if data.shape[0] != 6 or np.isnan(data).any():
-                    nan_nwp = True
-                    break
-                            
-                # Normalize data
-                # data = (data - normalization_values["nwp"][feature]["min"]) / (normalization_values["nwp"][feature]["max"] - normalization_values["nwp"][feature]["min"])
 
-                nwp_features_arr.append(data)
-
-            if nan_nwp:
-                continue
-
-            nwp = np.stack(nwp_features_arr, axis=0)
-                                
-            i += 1
-            yield i, pv_features, sat, nwp, T, pv_targets
-            
-        except:
-            # print(e)
-            continue
-           
-
-def process_data(sat_type):
-    # with (
-    #     h5py.File(f'../processed_data/processed_train_2.hdf5', 'w') as f_train
-    #     ):
-    #         f_pv = f_train.create_group('pv')
-    #         f_sat = f_train.create_group(sat_type)
-    #         f_nwp = f_train.create_group('nwp')
-    #         f_time = f_train.create_group('time')
-    #         f_y = f_train.create_group('y')
-    #         for i, pv, sat, nwp, time, y in tqdm(worker([(year, month) for year in range(2021, 2022) for month in range(1, 13)], sat_type)):
-    #             f_pv.create_dataset(f'data_{i}', data=pv, compression="lzf")
-    #             f_sat.create_dataset(f'data_{i}', data=sat, compression="lzf")
-    #             f_nwp.create_dataset(f'data_{i}', data=nwp, compression="lzf")
-    #             f_time.create_dataset(f'data_{i}', data=np.array([time]), compression="lzf")
-    #             f_y.create_dataset(f'data_{i}', data=y, compression="lzf")  
-    
-    with (h5py.File(f'/data/processed_data/processed_train_metadata.hdf5', 'w') as f_metadata):
-        for year in range(2021, 2022):
-            for month in range(1, 13):
-                file_path = f'/data/processed_data/processed_train_{month}.hdf5'
-                if os.path.exists(file_path):
-                    f_train = h5py.File(file_path, 'a')
-                else:
-                    f_train = h5py.File(file_path, 'w')
-
-                f_pv = f_train.create_group('pv')
-                f_sat = f_train.create_group(sat_type)
-                f_nwp = f_train.create_group('nwp')
-                f_time = f_train.create_group('time')
-                f_y = f_train.create_group('y')
-                for i, pv, sat, nwp, time, y in tqdm(worker(year, month, sat_type)):
-                    f_pv.create_dataset(f'data_{i}', data=pv, compression="lzf")
-                    f_sat.create_dataset(f'data_{i}', data=sat, compression="lzf")
-                    f_nwp.create_dataset(f'data_{i}', data=nwp, compression="lzf")
-                    f_time.create_dataset(f'data_{i}', data=np.array([time.timestamp()]), compression="lzf")
-                    f_y.create_dataset(f'data_{i}', data=y, compression="lzf")  
-                    f_metadata.create_dataset(f'data_{i}', data=np.array([month]), compression="lzf")
-
+import pandas as pd
+import xarray as xr
+import numpy as np
+import json
+from datetime import datetime, timedelta
 
 NWP_FEATURES = ["t_500", "clcl", "alb_rad", "tot_prec", "ww", "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000"]
-# NWP_FEATURES = ["t_500", "clct", "alb_rad", "tot_prec", "aswdifd_s"]
 EXTRA_FEATURES = ["latitude_rounded", "longitude_rounded", "orientation", "tilt"]
+
+def worker(dates, sat_type, all_sites):  
+    with open("./indices.json") as f:
+        site_locations = json.load(f)
+
+    pv_metadata_file = "./data/pv/metadata.csv"
+    pv_metadata = pd.read_csv(pv_metadata_file)
+    pv_metadata.set_index("ss_id", inplace=True)
+
+    for year, month in dates:
+        print(f"Processing year {year}, month {month}...")
+        pv_file_path = f"./data/pv/{year}/{month}.parquet"
+        sat_file_path = f"./data/satellite-{sat_type}/{year}/{month}.zarr.zip"
+        nwp_file_path = f"./data/weather/{year}/{month}.zarr.zip"
+
+        pv_data = pd.read_parquet(pv_file_path)
+
+        # Check if 'timestamp' and 'ss_id' are in the index
+        if 'timestamp' not in pv_data.index.names or 'ss_id' not in pv_data.index.names:
+            continue
+
+        for time in get_image_times(year, month):
+            for site in all_sites:
+                if site not in pv_metadata.index:
+                    continue
+
+                try:
+                    pv_features = pv_data.loc[(time, site)]
+
+                    if pv_features.empty:
+                        continue
+
+                    print(f"Processing site {site} at time {time}")
+                    site_features = pv_features.to_numpy() if isinstance(pv_features, pd.Series) else pv_features.values
+                    site_targets = site_features  # Adjust if targets are stored differently
+
+                    x, y = site_locations['satellite'][site]
+                    crop_coords_sat = (x - 64, x + 64, y - 64, y + 64)
+
+                    T = time + timedelta(hours=1)
+                    nwp_hours = slice(T - timedelta(hours=1), T + timedelta(hours=4))
+
+                    nwp_features_arr = []
+                    for feature in NWP_FEATURES:
+                        data = nwp_data[feature].sel(time=nwp_hours).to_numpy()
+                                        
+                        if data.shape[0] != 6 or np.isnan(data).any():
+                            print(f"NWP data for feature {feature} is incomplete or contains NaN values at time {time} for site {site}.")
+                            continue
+
+                        nwp_features_arr.append(data)
+
+                    x_nwp, y_nwp = site_locations['weather'][site]
+                    crop_coords_nwp = (x_nwp - 64, x_nwp + 64, y_nwp - 64, y_nwp + 64)
+
+                    extra = pv_metadata.loc[site, EXTRA_FEATURES].to_numpy()
+
+                    yield (site, site_features, crop_coords_sat, crop_coords_nwp, extra, site_targets, time)
+                except KeyError as e:
+
+
+
+import pandas as pd
+import xarray as xr
+import numpy as np
+import json
+from datetime import datetime, timedelta
+import h5py
+from tqdm import tqdm
+
+import h5py
+from tqdm import tqdm
+
+# Assuming NWP_FEATURES and EXTRA_FEATURES are defined elsewhere in the code as shown previously
+NWP_FEATURES = ["t_500", "clcl", "alb_rad", "tot_prec", "ww", "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000"]
+EXTRA_FEATURES = ["latitude_rounded", "longitude_rounded", "orientation", "tilt"]
+import pandas as pd
+import numpy as np
+import h5py
+from tqdm import tqdm
+def process_data(sat_type):
+    # Load site identifiers from the metadata file
+    pv_metadata_file = "./data/pv/metadata.csv"
+    pv_metadata = pd.read_csv(pv_metadata_file)
+    all_sites = pv_metadata['ss_id'].unique()  # Get all unique site identifiers
+
+    for year in range(2021, 2022):  # Adjust the range as necessary
+        for month in range(1, 13):  # Adjust the range as necessary
+            file_path = f'./data/processed_data/processed_train_{month}.hdf5'
+            with h5py.File(file_path, 'a') as f_train:
+                f_pv = f_train.require_group('pv')
+                f_coords_sat = f_train.require_group('coords_sat')
+                f_coords_nwp = f_train.require_group('coords_nwp')
+                f_extra = f_train.require_group('extra')
+                f_time = f_train.require_group('time')
+                f_y = f_train.require_group('y')
+
+                site_times = {}  # Dictionary to accumulate timestamps for each site
+
+                for site, pv, coords_sat, coords_nwp, extra, y, time in tqdm(worker([(year, month)], sat_type, all_sites)):
+                    dataset_name = f'data_{site}'
+                    if dataset_name in f_pv:
+                        print(f"Data for site {site} already exists, skipping")
+                        continue
+
+                    # Accumulate timestamps for each site
+                    if site not in site_times:
+                        site_times[site] = []
+                    site_times[site].append(time.timestamp())
+
+                    # The rest of the data handling
+                    f_pv.create_dataset(dataset_name, data=pv, compression="lzf")
+                    f_coords_sat.create_dataset(dataset_name, data=coords_sat)
+                    f_coords_nwp.create_dataset(dataset_name, data=coords_nwp)
+                    f_extra.create_dataset(dataset_name, data=extra, compression="lzf")
+                    f_y.create_dataset(dataset_name, data=y, compression="lzf")
+
+                # After processing all times and sites, save the timestamps
+                for site, times in site_times.items():
+                    dataset_name = f'data_{site}'
+                    f_time.create_dataset(dataset_name, data=np.array(times), compression="lzf")
+
 process_data(sat_type="nonhrv")
