@@ -30,7 +30,6 @@ print(device)
 
 # In[ ]:
 
-
 from dataset import ChallengeDataset
 import json
 with open("indices.json") as f:
@@ -41,9 +40,21 @@ with open("indices.json") as f:
         }
         for data_source, locations in json.load(f).items()
     }
-dataset = ChallengeDataset('/data/pv/2021/', '/data/satellite-nonhrv_proc/2021/', "/data/weather_proc/2021/", site_locations, None)
-data_loader = DataLoader(dataset, batch_size=16, pin_memory=True, num_workers=6, shuffle=False)
+hdf5_file_path = './data/processed_data/processed_train_1.hdf5'
+metadata = pd.read_csv('./data/pv/metadata.csv')
+nwp_file_path = './data/weather/2021/1.zarr.zip'
+hrv_file_path = './data/satellite-nonhrv/2021/1.zarr.zip'
+# Instantiate the ChallengeDataset
+dataset = ChallengeDataset(
+    hdf5_file=hdf5_file_path,
+    site_locations=site_locations,
+    metadata=metadata,
+    nwp_file_path=nwp_file_path,
+    hrv_file_path=hrv_file_path
+)
+data_loader = DataLoader(dataset, batch_size=16, pin_memory=True, num_workers=6, shuffle=True)
 print(f"train dataset len: {len(dataset)}")
+
 
 
 # In[ ]:
@@ -140,6 +151,10 @@ for i in range(100):
 
 
 # In[ ]:
+
+
+
+
 
 
 
