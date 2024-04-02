@@ -19,7 +19,8 @@ plt.rcParams["figure.figsize"] = (20, 12)
 START_MONTH = int(os.environ["START_MONTH"])
 END_MONTH = int(os.environ["END_MONTH"])
 assert END_MONTH >= START_MONTH
-MAX_SAMPLES = 26250 * (END_MONTH - START_MONTH + 1)
+# MAX_SAMPLES = 26250 * (END_MONTH - START_MONTH + 1)
+from datetime import timezone 
 
 # https://www.worlddata.info/europe/united-kingdom/sunset.php
 month_to_times = {
@@ -54,11 +55,10 @@ def get_image_times(year, month):
         current_time = datetime.combine(date, start_time)
         
         while current_time.time() < end_time:
-            if current_time and np.random.rand() < 0.8:
+            if current_time:
                 yield current_time
                 
-            minutes_to_add = int(np.random.choice([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]))
-            current_time += timedelta(minutes=minutes_to_add, hours=1)
+            current_time += timedelta(hours=1)
             
         date += timedelta(days=1)
 
@@ -84,7 +84,8 @@ def worker(dates, sat_type):
         sat_file_path = f"/data/satellite-{sat_type}/{year}/{month}.zarr.zip"
         nwp_file_path = f"/data/weather/{year}/{month}.zarr.zip"
         
-        pv_data = pd.read_parquet(pv_file_path).drop("generation_wh", axis=1)
+        # pv_data = pd.read_parquet(pv_file_path).drop("generation_wh", axis=1)
+        pv_data = pd.read_parquet(pv_file_path)
         sat_data = xr.open_dataset(sat_file_path, engine="zarr", chunks="auto", consolidated=True)
         nwp_data = xr.open_dataset(nwp_file_path, engine="zarr", chunks="auto", consolidated=True)
         
@@ -105,8 +106,6 @@ def worker(dates, sat_type):
                 continue
 
             for site in sites:
-                if np.random.rand() < 0.7:
-                    continue
                 try:
                     # Get solar PV features and targets
                     site_features = pv_features.xs(site, level=1).to_numpy().squeeze(-1)
@@ -116,12 +115,13 @@ def worker(dates, sat_type):
                     # Get a 128x128 crop centred on the site over the previous hour
                     x, y = site_locations[sat_type][site]
                     if sat_type == "hrv":
-                        sat = sat_features[:, y - 64 : y + 64, x - 64 : x + 64, 0]                        
+                        sat = sat_features[:, y - 64 : y + 64, x - 64 : x + 64, 0]
                         assert sat.shape == (12, 128, 128)
                     else:
                         sat = sat_features[:, y - 64 : y + 64, x - 64 : x + 64, :]
                         sat = sat.transpose(3, 0, 1, 2)
                         assert sat.shape == (11, 12, 128, 128)
+                    sat = (x, y)
 
                     # nwp features
                     nan_nwp = False
@@ -148,9 +148,7 @@ def worker(dates, sat_type):
                         # 128x128 crop
                         data = data[:, y_nwp - 64 : y_nwp + 64, x_nwp - 64 : x_nwp + 64]
                         assert data.shape == (6, 128, 128)
-                                    
-                        # Normalize data
-                        # data = (data - normalization_values["nwp"][feature]["min"]) / (normalization_values["nwp"][feature]["max"] - normalization_values["nwp"][feature]["min"])
+                        data = (x_nwp, y_nwp)
 
                         nwp_features_arr.append(data)
 
@@ -162,28 +160,16 @@ def worker(dates, sat_type):
                     # extra features
                     extra = pv_metadata.loc[site, EXTRA_FEATURES].to_numpy().astype(np.float32)
                     assert extra.shape == (len(EXTRA_FEATURES),)
-                        
-                    # 80 20 split
-                    # if np.random.rand() < 0.2:
-                    #     # Get the next dataset index 
-                    #     set_type = "val"
-                    #     i_val += 1
-                    #     yield i_val, set_type, (site_features, sat, nwp, extra, site_targets)
-                    # else:
-                    #     set_type = "train"
-                    #     i_train += 1
-                    #     yield i_train, set_type, (site_features, sat, nwp, extra, site_targets)
-                
-                    # Validation on 2021, training on 2020
+                    # train on 2021, val on 2020
                     if year == 2021:
                         # Get the next dataset index 
                         set_type = "train"
                         i_val += 1
-                        yield i_val, set_type, (site_features, sat, nwp, extra, site_targets, first_hour)
+                        yield i_val, set_type, (site_features, sat, nwp, extra, site_targets, time)
                     else:
                         set_type = "val"
                         i_train += 1
-                        yield i_train, set_type, (site_features, sat, nwp, extra, site_targets, first_hour)
+                        yield i_train, set_type, (site_features, sat, nwp, extra, site_targets, time)
                 
                 except:
                     # print(e)
@@ -200,7 +186,7 @@ def process_data(sat_type):
             f_nwp = f_train.create_group('nwp')
             f_extra = f_train.create_group('extra')
             f_y = f_train.create_group('y')
-            # f_time = f_train.create_group('first_hour')
+            f_time = f_train.create_group('time')
 
         
             f_pv_val = f_val.create_group('pv')
@@ -208,26 +194,28 @@ def process_data(sat_type):
             f_nwp_val = f_val.create_group('nwp')
             f_extra_val = f_val.create_group('extra')
             f_y_val = f_val.create_group('y')
-            # f_time_val = f_val.create_group('first_hour')
+            f_time_val = f_val.create_group('time')
 
         
             for i, set_type, data in tqdm(worker([(year, month) for year in range(2021, 2022) for month in range(int(os.environ['START_MONTH']), int(os.environ['END_MONTH']) + 1)], sat_type)):
                 # (pv, sat, nwp, extra, y) = data
+                timen = data[5].replace(tzinfo=timezone.utc) 
+                # print(timen, timen.timestamp())
                 if set_type == "train":
                     f_pv.create_dataset(f'data_{i}', data=data[0], compression="lzf")
                     f_sat.create_dataset(f'data_{i}', data=data[1], compression="lzf")
                     f_nwp.create_dataset(f'data_{i}', data=data[2], compression="lzf")
                     f_extra.create_dataset(f'data_{i}', data=data[3], compression="lzf")
-                    f_y.create_dataset(f'data_{i}', data=data[4])
-                    # f_time.create_dataset(f'data_{i}', data=data[5])
+                    f_y.create_dataset(f'data_{i}', data=data[4], compression="lzf")
+                    f_time.create_dataset(f'data_{i}', data=np.array([timen.timestamp()]), compression="lzf")
                 else:                    
                     f_pv_val.create_dataset(f'data_{i}', data=data[0], compression="lzf")
                     f_sat_val.create_dataset(f'data_{i}', data=data[1], compression="lzf")
                     f_nwp_val.create_dataset(f'data_{i}', data=data[2], compression="lzf")
                     f_extra_val.create_dataset(f'data_{i}', data=data[3], compression="lzf")
                     f_y_val.create_dataset(f'data_{i}', data=data[4], compression="lzf")
-                    # f_time_val.create_dataset(f'data_{i}', data=data[5], compression="lzf")
-                if i >= MAX_SAMPLES:
+                    f_time_val.create_dataset(f'data_{i}', data=np.array([timen.timestamp()]), compression="lzf")
+                if i > 1000:
                     break
 
 

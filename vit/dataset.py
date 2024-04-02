@@ -13,9 +13,17 @@ import h5py
 import time as tfs
 
 BATCH_SIZE = 32
+NWP_FEATURES = [
+    "t_500", "clcl", "alb_rad", "tot_prec", "ww",
+    "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000"
+]
+import dask
+dask.config.set(scheduler='synchronous')
 class HDF5Dataset(Dataset):
-    def __init__(self, files, pv, sat, nwp, extra):
+    def __init__(self, files, sat_file, nwp_file, pv, sat, nwp, extra):
         self.files = files
+        self.sat_file = xr.open_dataset(sat_file, engine="zarr", chunks={"time": "auto"})
+        self.nwp_file = xr.open_dataset(nwp_file, engine="zarr", chunks={"time": "auto"})
         self.pv = pv
         self.sat = sat
         self.nwp = nwp
@@ -59,16 +67,41 @@ class HDF5Dataset(Dataset):
         with h5py.File(self.files[file_idx], 'r') as f:
             data_name = f'data_{idx}'
             data = []
-            
+            datett = datetime.utcfromtimestamp(f['time'][data_name][...][0])
+            time = datett # time is a little bit of a misnomer, this is really the start of the one-hour period before the time we are predicting
+
             if self.pv:
                 data.append(torch.from_numpy(f['pv'][data_name][...]))
             if self.sat:
-                data.append(torch.from_numpy(f['nonhrv'][data_name][...]))
+                x, y = f['nonhrv'][data_name][...]
+                x, y = int(x), int(y)
+                first_hour = slice(str(time), str(time + timedelta(minutes=55)))
+                crop = self.sat_file["data"].sel(time=first_hour).to_numpy()[:, y - 64 : y + 64, x - 64 : x + 64, :]
+                crop = torch.from_numpy(crop).permute((3, 0, 1, 2))
+                data.append(crop)
             if self.nwp:
-                data.append(torch.from_numpy(f['nwp'][data_name][...]))
+                x, y = f['nwp'][data_name][...][0]
+                x_nwp, y_nwp = int(x), int(y)
+                T = time + timedelta(hours=1)
+                # Check if time is on the hour or not
+                if T.minute == 0:
+                    nwp_hours = slice(str(T - timedelta(hours=1)), str(T + timedelta(hours=4)))
+                else:
+                    nwp_hours = slice(str(T - timedelta(hours=1, minutes=time.minute)), str(T + timedelta(hours=4) - timedelta(minutes=time.minute)))
+                nwp_hours = slice(str(T - timedelta(hours=1, minutes=time.minute)), str(T + timedelta(hours=4) - timedelta(minutes=time.minute)))
+                nwp_features_arr = []
+                for feature in NWP_FEATURES:
+                    data2 = self.nwp_file[feature].sel(time=nwp_hours).to_numpy()
+                    if data2.shape[0] != 6 or np.isnan(data2).any():
+                        return None
+                    # 128x128 crop
+                    data2 = data2[:, y_nwp - 64 : y_nwp + 64, x_nwp - 64 : x_nwp + 64]
+                    assert data2.shape == (6, 128, 128)
+                    nwp_features_arr.append(data2)
+                nwp = np.stack(nwp_features_arr, axis=0)
+                data.append(torch.from_numpy(nwp))
             if self.extra:
                 data.append(torch.from_numpy(f['extra'][data_name][...]))
-                
             data.append(torch.from_numpy(f['y'][data_name][...]))
             return data
 
@@ -96,6 +129,7 @@ class ChallengeDataset(Dataset):
     def __init__(self, pvs, hrvs, weathers, site_locations, metadata, sites=None):
         self.time_index = []
         self.pv, self.sat, self.weather, = [pvs + f"{i}.parquet" for i in range(1, 13)], [hrvs + f"{i}.zarr" for i in range(1, 13)], [weathers + f"{i}.hdf5" for i in range(1, 13)]
+
         self.individual_lens = self.compute_file_lens(pvs)
         self._site_locations = site_locations
         self._sites = sites if sites else list(site_locations["nonhrv"].keys())
@@ -109,7 +143,12 @@ class ChallengeDataset(Dataset):
                 time2 = np.array(hdf_file['time'])
                 time2 = np.array(list(map(lambda x: datetime.utcfromtimestamp(int(x)), time2)))
                 self.weather_times.append(time2)
-
+        self.pv_handles = {}
+        self.sat_handles = {}
+        self.weather_handles = {}
+        print("opening files in cache")
+        for item in self.sat:
+            self.sat_handles[item] = self.open_xarray(item, drop=False)
     def __len__(self):
         return self.len
 
@@ -124,13 +163,18 @@ class ChallengeDataset(Dataset):
             lens.append(len(help))
         return lens
 
-    @lru_cache(None)
     def open_parquet(self, filename, file_idx=-1):
         if file_idx == -1:
-            return pd.read_parquet(filename).drop("generation_wh", axis=1)
+            try:
+                return pd.read_parquet(filename).drop("generation_wh", axis=1)
+            except:
+                return pd.read_parquet(filename)
         else:
             start, stop = month_to_times[file_idx + 1]
-            df = pd.read_parquet(filename).drop("generation_wh", axis=1)
+            try:
+                df = pd.read_parquet(filename).drop("generation_wh", axis=1)
+            except:
+                df = pd.read_parquet(filename)
             df = df[df.index.get_level_values('timestamp').hour >= start]
             return df[df.index.get_level_values('timestamp').hour <= stop]
 
@@ -240,7 +284,7 @@ class ChallengeDataset(Dataset):
                 all_weather_features = np.stack((all_weather_features, weather_features), axis=1)
 
         weather = tfs.time()
-        print("weather:", weather - sat)
+        # print("weather:", weather - sat)
 
         EXTRA_FEATURES = ["latitude_rounded", "longitude_rounded", "orientation", "tilt"]
         # get extra data 
@@ -250,6 +294,6 @@ class ChallengeDataset(Dataset):
             extra = pv_metadata.loc[site, EXTRA_FEATURES].to_numpy().astype(np.float32)
 
         ex = tfs.time()
-        print("extra:", ex - weather)
+        # print("extra:", ex - weather)
 
         return pv_features, hrv_features, all_weather_features, extra, pv_targets

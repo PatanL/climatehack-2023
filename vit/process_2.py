@@ -158,27 +158,24 @@ def process_data(sat_type):
     #             f_time.create_dataset(f'data_{i}', data=np.array([time]), compression="lzf")
     #             f_y.create_dataset(f'data_{i}', data=y, compression="lzf")  
     
-    with (h5py.File(f'/data/processed_data/processed_train_metadata.hdf5', 'w') as f_metadata):
-        for year in range(2021, 2022):
-            for month in range(1, 13):
-                file_path = f'/data/processed_data/processed_train_{month}.hdf5'
-                if os.path.exists(file_path):
-                    f_train = h5py.File(file_path, 'a')
-                else:
-                    f_train = h5py.File(file_path, 'w')
+    for year in range(2021, 2022):
+        for month in range(1, 13):
+            file_path = f'/data/processed_data/processed_train_{month}_{year}.hdf5'
+            f_train = h5py.File(file_path, 'w')
 
-                f_pv = f_train.create_group('pv')
-                f_sat = f_train.create_group(sat_type)
-                f_nwp = f_train.create_group('nwp')
-                f_time = f_train.create_group('time')
-                f_y = f_train.create_group('y')
-                for i, pv, sat, nwp, time, y in tqdm(worker(year, month, sat_type)):
-                    f_pv.create_dataset(f'data_{i}', data=pv, compression="lzf")
-                    f_sat.create_dataset(f'data_{i}', data=sat, compression="lzf")
-                    f_nwp.create_dataset(f'data_{i}', data=nwp, compression="lzf")
-                    f_time.create_dataset(f'data_{i}', data=np.array([time.timestamp()]), compression="lzf")
-                    f_y.create_dataset(f'data_{i}', data=y, compression="lzf")  
-                    f_metadata.create_dataset(f'data_{i}', data=np.array([month]), compression="lzf")
+            f_pv = f_train.create_group('pv')
+            f_sat = f_train.create_group(sat_type)
+            f_nwp = f_train.create_group('nwp')
+            f_time = f_train.create_group('time')
+            f_y = f_train.create_group('y')
+            f_metadata = f_train.create_group('metadata')
+            for i, pv, sat, nwp, time, y in tqdm(worker(year, month, sat_type), desc=f"{month , year}"):
+                f_pv.create_dataset(f'data_{i}', data=pv, compression="lzf")
+                f_sat.create_dataset(f'data_{i}', data=sat, compression="lzf")
+                f_nwp.create_dataset(f'data_{i}', data=nwp, compression="lzf")
+                f_time.create_dataset(f'data_{i}', data=np.array([time.timestamp()]), compression="lzf")
+                f_y.create_dataset(f'data_{i}', data=y, compression="lzf")  
+                f_metadata.create_dataset(f'data_{i}', data=np.array([month]), compression="lzf")
 
 
 NWP_FEATURES = ["t_500", "clcl", "alb_rad", "tot_prec", "ww", "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000"]
