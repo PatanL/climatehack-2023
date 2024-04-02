@@ -1,9 +1,4 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[ ]:
-
-
+# %%
 from datetime import datetime, time, timedelta
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -17,49 +12,18 @@ from torchinfo import summary
 import json
 import glob
 plt.rcParams["figure.figsize"] = (20, 12)
-# %load_ext autoreload
-# %autoreload 2
 
-
-# In[ ]:
-
-
+# %%
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(device)
 
-
-# In[ ]:
-
-from dataset import ChallengeDataset
-import json
-with open("indices.json") as f:
-    site_locations = {
-        data_source: {
-            int(site): (int(location[0]), int(location[1]))
-            for site, location in locations.items()
-        }
-        for data_source, locations in json.load(f).items()
-    }
-hdf5_file_path = './data/processed_data/processed_train_1.hdf5'
-metadata = pd.read_csv('./data/pv/metadata.csv')
-nwp_file_path = './data/weather/2021/1.zarr.zip'
-hrv_file_path = './data/satellite-nonhrv/2021/1.zarr.zip'
-# Instantiate the ChallengeDataset
-dataset = ChallengeDataset(
-    hdf5_file=hdf5_file_path,
-    site_locations=site_locations,
-    metadata=metadata,
-    nwp_file_path=nwp_file_path,
-    hrv_file_path=hrv_file_path
-)
-data_loader = DataLoader(dataset, batch_size=16, pin_memory=True, num_workers=6, shuffle=True)
+# %%
+from dataset import HDF5Dataset
+dataset = HDF5Dataset(['/data/processed_data/processed_train_1.hdf5'], "/data/satellite-nonhrv_concat/2021.zarr", "/data/weather_concat/2021.zarr", True, True, True, True)
+data_loader = DataLoader(dataset, batch_size=16, pin_memory=True, num_workers=8, shuffle=False)
 print(f"train dataset len: {len(dataset)}")
 
-
-
-# In[ ]:
-
-
+# %%
 EPOCHS = 15
 START_EPOCH = 0
 LR = 1e-3
@@ -75,19 +39,13 @@ summary(model, input_size=[(1, 12), (1, 11, 12, 128, 128), (1, 10, 6, 128, 128),
 # a = torch.randn((1, 3)).to(device)
 # model(x, y, z, a)
 
-
-# In[ ]:
-
-
+# %%
 from torch.utils.tensorboard import SummaryWriter
 writer = SummaryWriter()
 def hasNan(tensor):
     return torch.isnan(tensor).any()
 
-
-# In[9]:
-
-
+# %%
 MODEL_KEY="ExtraEmbedding_TemporalResnet2+1Combo-PVResFCNet2"
 print(f"Training model key {MODEL_KEY}")
 from tqdm import tqdm
@@ -99,7 +57,7 @@ for epoch in range(EPOCHS):
     count = 0
     for (pv_features, hrv_features, nwp, extra, pv_targets) in (pbar := tqdm(data_loader, total=len(data_loader), ascii=True)):
         optimiser.zero_grad()
-        with torch.autocast(device_type=device):
+        with torch.autocast(device_type="cuda"):
             real_extra = extra[:, 2:]
             if hasNan(pv_features) or hasNan(hrv_features) or hasNan(nwp) or hasNan(extra) or hasNan(pv_targets):
                 print(f"Found nan {i}")
@@ -110,9 +68,10 @@ for epoch in range(EPOCHS):
                 nwp.to(device,dtype=torch.float),
                 real_extra.to(device,dtype=torch.float),
             )
+            # print(pv_features.shape, hrv_features.shape, nwp.shape, real_extra.shape)
             loss = criterion(predictions, pv_targets.to(device, dtype=torch.float))
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
         optimiser.step()
 
         size = int(pv_targets.size(0))
@@ -135,27 +94,15 @@ for epoch in range(EPOCHS):
     torch.save(model.state_dict(), f"./cpts/{MODEL_KEY}-ep{START_EPOCH + epoch + 1}.pt")
     print("Saved model!")
 
-
-# In[ ]:
-
+# %%
 
 
-
-
-# In[ ]:
-
-
+# %%
 for i in range(100):
     pv_features, hrv_features, weather_features, extra, pv_targets = dataset[i]
     print(hrv_features.shape, weather_features.shape)
 
-
-# In[ ]:
-
-
-
-
-
+# %%
 
 
 

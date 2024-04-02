@@ -22,8 +22,8 @@ dask.config.set(scheduler='synchronous')
 class HDF5Dataset(Dataset):
     def __init__(self, files, sat_file, nwp_file, pv, sat, nwp, extra):
         self.files = files
-        self.sat_file = xr.open_dataset(sat_file, engine="zarr", chunks={"time": "auto"})
-        self.nwp_file = xr.open_dataset(nwp_file, engine="zarr", chunks={"time": "auto"})
+        self.sat_file = xr.open_dataset(sat_file, engine="zarr", chunks={"time": 512})
+        self.nwp_file = xr.open_dataset(nwp_file, engine="zarr", chunks={"time": 512})
         self.pv = pv
         self.sat = sat
         self.nwp = nwp
