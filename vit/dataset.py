@@ -92,7 +92,7 @@ class HDF5Dataset(Dataset):
             crop = crop.permute((3, 0, 1, 2))
             data.append(crop)
         if self.nwp:
-            x, y = f['nwp'][data_name][...][0]
+            x, y = f['nwp'][data_name][...]
             x, y = int(x), int(y)
             # read from our horrible numpy method
             try:
