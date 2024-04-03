@@ -38,6 +38,37 @@ month_to_times = {
     12: (time(8), time(16))
 }
 
+MAX_SAMPLES = {
+    1: 75087,
+    2: 135478,
+    3: 148795,
+    4: 142888,
+    5: 146131,
+    6: 139695,
+    7: 144006,
+    8: 141826,
+    9: 135122,
+    10: 141410,
+    11: 363602,
+    12: 0
+ }
+
+
+SAMPLES_SO_FAR = {
+    1: 75087,
+    2: 0,
+    3: 0,
+    4: 0,
+    5: 0,
+    6: 0,
+    7: 0,
+    8: 0,
+    9: 0,
+    10: 0,
+    11: 0,
+    12: 0
+ }
+
 def get_image_times(year, month):
     min_date = datetime(year, month, 1)
     
@@ -151,6 +182,7 @@ def worker(dates, sat_type):
                     extra = pv_metadata.loc[site, EXTRA_FEATURES].to_numpy().astype(np.float32)
                     assert extra.shape == (len(EXTRA_FEATURES),)
                     # train on 2021, val on 2020
+                    SAMPLES_SO_FAR[month] += 1
                     if year == 2021:
                         # Get the next dataset index 
                         set_type = "train"
@@ -160,7 +192,6 @@ def worker(dates, sat_type):
                         set_type = "val"
                         i_train += 1
                         yield i_train, set_type, (site_features, sat, nwp, extra, site_targets, time)
-                
                 except:
                     # print(e)
                     continue
