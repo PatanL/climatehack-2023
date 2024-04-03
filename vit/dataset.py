@@ -84,9 +84,10 @@ class HDF5Dataset(Dataset):
                     dt = init_time
                     base_folder = self.sat_folder
                     folder_name = base_folder + dt.strftime('%y-%m-%d') + "/"
-                    file_name = dt.strftime('%H:%M:%S') + ".npz"
+                    file_name = "data.npz"
                     total_name = folder_name + file_name
-                    crop_list.append(np.load(total_name)['arr_0'])
+                    arr = np.load(total_name, allow_pickle=True)
+                    crop_list.append(arr[dt.strftime('%H:%M:%S')])
                     init_time = init_time + timedelta(minutes=5)
                 # end reading
                 try:
@@ -115,9 +116,10 @@ class HDF5Dataset(Dataset):
                     dt = init_time
                     base_folder = self.nwp_folder
                     folder_name = base_folder + dt.strftime('%y-%m-%d') + "/"
-                    file_name = dt.strftime('%H:%M:%S') + ".npz"
+                    file_name = "data.npz"
                     total_name = folder_name + file_name
-                    crop_list.append(np.load(total_name)['arr_0'])
+                    arr = np.load(total_name, allow_pickle=True)
+                    crop_list.append(arr[dt.strftime('%H:%M:%S')])
                     init_time = init_time + timedelta(hours=1)
                 # end reading
                 try:
