@@ -111,15 +111,11 @@ def worker(dates, sat_type):
       
     i_train, i_val = -1, -1
     for year, month in dates:       
-        pv_file_path = f"/data/pv/{year}/{month}.parquet"
-        sat_file_path = f"/data/satellite-{sat_type}/{year}/{month}.zarr.zip"
-        nwp_file_path = f"/data/weather/{year}/{month}.zarr.zip"
+        pv_file_path = f"/data/pv/proc.parquet"
         
         # pv_data = pd.read_parquet(pv_file_path).drop("generation_wh", axis=1)
         pv_data = pd.read_parquet(pv_file_path)
-        sat_data = xr.open_dataset(sat_file_path, engine="zarr", chunks="auto", consolidated=True)
-        nwp_data = xr.open_dataset(nwp_file_path, engine="zarr", chunks="auto", consolidated=True)
-        
+
         for time in get_image_times(year, month):
             if time.minute != 0:
                 continue
@@ -134,10 +130,6 @@ def worker(dates, sat_type):
                 drop_level=False,
             )
 
-            sat_features = sat_data["data"].sel(time=first_hour)
-            if sat_features.shape[0] != 12:
-                continue
-
             for site in sites:
                 try:
                     # Get solar PV features and targets
@@ -148,37 +140,9 @@ def worker(dates, sat_type):
                     # Get a 128x128 crop centred on the site over the previous hour
                     x, y = site_locations[sat_type][site]
                     sat = (x, y)
-
                     # nwp features
-                    nan_nwp = False
                     x_nwp, y_nwp = site_locations["weather"][site]
-                    
-                    # NWP HOURS: [T - 1h, T, T + 1h, T + 2h, T + 3h, T + 4h]. Granularity: 1hr
-                    # where T is the forecast start time, NOT the past start time
-                    T = time + timedelta(hours=1)
-                    
-                    # Check if time is on the hour or not
-                    if T.minute == 0:
-                        nwp_hours = slice(str(T - timedelta(hours=1)), str(T + timedelta(hours=4)))
-                    else:
-                        nwp_hours = slice(str(T - timedelta(hours=1, minutes=time.minute)), str(T + timedelta(hours=4) - timedelta(minutes=time.minute)))
-
-                    nwp_features_arr = []
-                    for feature in NWP_FEATURES:
-                        data = nwp_data[feature].sel(time=nwp_hours)
-                                    
-                        if data.shape[0] != 6:
-                            nan_nwp = True
-                            break
-
-                        # 128x128 crop
-                        data = (x_nwp, y_nwp)
-                        nwp_features_arr.append(data)
-
-                    if nan_nwp:
-                        continue
-
-                    nwp = np.stack(nwp_features_arr, axis=0)
+                    nwp = (x_nwp, y_nwp)
                                 
                     # extra features
                     extra = pv_metadata.loc[site, EXTRA_FEATURES].to_numpy().astype(np.float32)
@@ -195,7 +159,7 @@ def worker(dates, sat_type):
                         i_train += 1
                         yield i_train, set_type, (site_features, sat, nwp, extra, site_targets, time)
                 except:
-                    # print(e)
+                    print(e)
                     continue
            
 
