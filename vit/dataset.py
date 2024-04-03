@@ -78,54 +78,33 @@ class HDF5Dataset(Dataset):
                 x, y = f['nonhrv'][data_name][...]
                 x, y = int(x), int(y)
                 # read from our horrible numpy method
-                crop_list = []
-                init_time = time
-                while init_time <= time + timedelta(minutes=55):
-                    dt = init_time
+                try:
+                    dt = time
                     base_folder = self.sat_folder
                     folder_name = base_folder + dt.strftime('%y-%m-%d') + "/"
-                    file_name = "data.npz"
+                    file_name = dt.strftime('%H:%M:%S') + ".npy"
                     total_name = folder_name + file_name
-                    arr = np.load(total_name, allow_pickle=True)
-                    crop_list.append(arr[dt.strftime('%H:%M:%S')])
-                    init_time = init_time + timedelta(minutes=5)
-                # end reading
-                try:
-                    crop = np.stack(crop_list)
+                    crop = np.load(total_name)
                 except:
                     return None
+                # end reading
                 crop = crop[:, y - 64 : y + 64, x - 64 : x + 64, :]
                 crop = torch.from_numpy(crop).permute((3, 0, 1, 2))
                 data.append(crop)
             if self.nwp:
                 x, y = f['nwp'][data_name][...][0]
                 x, y = int(x), int(y)
-                T = time + timedelta(hours=1)
-                start_slice = None
-                end_slice = None
-                # Check if time is on the hour or not
-                if T.minute == 0:
-                    start_slice, end_slice = T - timedelta(hours=1), T + timedelta(hours=4)
-                else:
-                    start_slice, end_slice = str(T - timedelta(hours=1, minutes=time.minute)), str(T + timedelta(hours=4) - timedelta(minutes=time.minute))   
-                nwp_features_arr = []
                 # read from our horrible numpy method
-                crop_list = []
-                init_time = start_slice
-                while init_time <= end_slice:
-                    dt = init_time
+                try:
+                    dt = time
                     base_folder = self.nwp_folder
                     folder_name = base_folder + dt.strftime('%y-%m-%d') + "/"
-                    file_name = "data.npz"
+                    file_name = dt.strftime('%H:%M:%S') + ".npy"
                     total_name = folder_name + file_name
-                    arr = np.load(total_name, allow_pickle=True)
-                    crop_list.append(arr[dt.strftime('%H:%M:%S')])
-                    init_time = init_time + timedelta(hours=1)
-                # end reading
-                try:
-                    crop = np.stack(crop_list)
+                    crop = np.load(total_name)
                 except:
                     return None
+                # end reading
                 crop = crop[:, :, y - 64 : y + 64, x - 64 : x + 64]
                 data.append(torch.from_numpy(crop).permute(1, 0, 2, 3))
             if self.extra:
@@ -272,4 +251,3 @@ class ChallengeDataset(Dataset):
                 return pv_features, hrv_features, pv_targets
         except Exception as e:
             return None
-

@@ -121,6 +121,8 @@ def worker(dates, sat_type):
         nwp_data = xr.open_dataset(nwp_file_path, engine="zarr", chunks="auto", consolidated=True)
         
         for time in get_image_times(year, month):
+            if time.minute != 0:
+                continue
             first_hour = slice(str(time), str(time + timedelta(minutes=55)))
 
             pv_features = pv_data.xs(first_hour, drop_level=False)  # type: ignore
