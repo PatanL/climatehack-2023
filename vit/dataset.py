@@ -20,8 +20,9 @@ NWP_FEATURES = [
 import dask
 dask.config.set(scheduler='synchronous')
 class HDF5Dataset(Dataset):
-    def __init__(self, files, sat_folder, nwp_folder, pv, sat, nwp, extra):
+    def __init__(self, files, sat_folder, nwp_folder, pv, sat, nwp, extra, device="cuda"):
         self.files = files
+        self.file_handles = [h5py.File(f, 'r', libver='latest', swmr=True) for f in files]
         self.sat_folder = sat_folder
         self.nwp_folder = nwp_folder
         self.pv = pv
@@ -30,6 +31,7 @@ class HDF5Dataset(Dataset):
         self.extra = extra
         self.length = 0
         self.individual_lens = []
+        self.device = device
         # Open the file quickly to get the number of keys
         for file in self.files:
             print(f"Opening file {file}.")
@@ -66,51 +68,54 @@ class HDF5Dataset(Dataset):
         return file_idx, idx
     def __getitem__(self, idx):
         file_idx, idx = self.find_file_idx(idx)
-        with h5py.File(self.files[file_idx], 'r') as f:
-            data_name = f'data_{idx}'
-            data = []
-            datett = datetime.utcfromtimestamp(f['time'][data_name][...][0])
-            time = datett # time is a little bit of a misnomer, this is really the start of the one-hour period before the time we are predicting
+        f = self.file_handles[file_idx]
+        data_name = f'data_{idx}'
+        data = []
+        datett = datetime.utcfromtimestamp(f['time'][data_name][...][0])
+        time = datett # time is a little bit of a misnomer, this is really the start of the one-hour period before the time we are predicting
 
-            if self.pv:
-                data.append(torch.from_numpy(f['pv'][data_name][...]))
-            if self.sat:
-                x, y = f['nonhrv'][data_name][...]
-                x, y = int(x), int(y)
-                # read from our horrible numpy method
-                try:
-                    dt = time
-                    base_folder = self.sat_folder
-                    folder_name = base_folder + dt.strftime('%y-%m-%d') + "/"
-                    file_name = dt.strftime('%H:%M:%S') + ".npy"
-                    total_name = folder_name + file_name
-                    crop = np.load(total_name)
-                except:
-                    return None
-                # end reading
-                crop = crop[:, y - 64 : y + 64, x - 64 : x + 64, :]
-                crop = torch.from_numpy(crop).permute((3, 0, 1, 2))
-                data.append(crop)
-            if self.nwp:
-                x, y = f['nwp'][data_name][...][0]
-                x, y = int(x), int(y)
-                # read from our horrible numpy method
-                try:
-                    dt = time
-                    base_folder = self.nwp_folder
-                    folder_name = base_folder + dt.strftime('%y-%m-%d') + "/"
-                    file_name = dt.strftime('%H:%M:%S') + ".npy"
-                    total_name = folder_name + file_name
-                    crop = np.load(total_name)
-                except:
-                    return None
-                # end reading
-                crop = crop[:, :, y - 64 : y + 64, x - 64 : x + 64]
-                data.append(torch.from_numpy(crop).permute(1, 0, 2, 3))
-            if self.extra:
-                data.append(torch.from_numpy(f['extra'][data_name][...]))
-            data.append(torch.from_numpy(f['y'][data_name][...]))
-            return data
+        if self.pv:
+            data.append(torch.from_numpy(f['pv'][data_name][...]))
+        if self.sat:
+            x, y = f['nonhrv'][data_name][...]
+            x, y = int(x), int(y)
+            # read from our horrible numpy method
+            try:
+                dt = time
+                base_folder = self.sat_folder
+                folder_name = base_folder + dt.strftime('%y-%m-%d') + "/"
+                file_name = dt.strftime('%H:%M:%S') + ".npy"
+                total_name = folder_name + file_name
+                crop = np.load(total_name)
+            except:
+                return None
+            # end reading
+            
+            crop = torch.from_numpy(crop)
+            crop = crop[:, y - 64 : y + 64, x - 64 : x + 64, :]
+            crop = crop.permute((3, 0, 1, 2))
+            data.append(crop)
+        if self.nwp:
+            x, y = f['nwp'][data_name][...][0]
+            x, y = int(x), int(y)
+            # read from our horrible numpy method
+            try:
+                dt = time
+                base_folder = self.nwp_folder
+                folder_name = base_folder + dt.strftime('%y-%m-%d') + "/"
+                file_name = dt.strftime('%H:%M:%S') + ".npy"
+                total_name = folder_name + file_name
+                crop = np.load(total_name)
+            except:
+                return None
+            # end readin
+            crop = torch.from_numpy(crop)
+            crop = crop[:, :, y - 64 : y + 64, x - 64 : x + 64]
+            data.append(crop)
+        if self.extra:
+            data.append(torch.from_numpy(f['extra'][data_name][...]))
+        data.append(torch.from_numpy(f['y'][data_name][...]))
+        return data
 
 month_to_times = {
     1: (8, 16),
