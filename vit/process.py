@@ -101,8 +101,8 @@ def worker(dates, sat_type):
                 drop_level=False,
             )
 
-            sat_features = sat_data["data"].sel(time=first_hour).to_numpy()
-            if sat_features.shape[0] != 12 or np.isnan(sat_features).any():
+            sat_features = sat_data["data"].sel(time=first_hour)
+            if sat_features.shape[0] != 12:
                 continue
 
             for site in sites:
@@ -132,15 +132,14 @@ def worker(dates, sat_type):
 
                     nwp_features_arr = []
                     for feature in NWP_FEATURES:
-                        data = nwp_data[feature].sel(time=nwp_hours).to_numpy()
+                        data = nwp_data[feature].sel(time=nwp_hours)
                                     
-                        if data.shape[0] != 6 or np.isnan(data).any():
+                        if data.shape[0] != 6:
                             nan_nwp = True
                             break
 
                         # 128x128 crop
                         data = (x_nwp, y_nwp)
-
                         nwp_features_arr.append(data)
 
                     if nan_nwp:
