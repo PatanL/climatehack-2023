@@ -20,10 +20,10 @@ NWP_FEATURES = [
 import dask
 dask.config.set(scheduler='synchronous')
 class HDF5Dataset(Dataset):
-    def __init__(self, files, sat_file, nwp_file, pv, sat, nwp, extra):
+    def __init__(self, files, sat_folder, nwp_folder, pv, sat, nwp, extra):
         self.files = files
-        self.sat_file = xr.open_dataset(sat_file, engine="zarr", chunks={"time": 512})
-        self.nwp_file = xr.open_dataset(nwp_file, engine="zarr", chunks={"time": 512})
+        self.sat_folder = sat_folder
+        self.nwp_folder = nwp_folder
         self.pv = pv
         self.sat = sat
         self.nwp = nwp
@@ -49,6 +49,8 @@ class HDF5Dataset(Dataset):
         return self.length
     @lru_cache(None)
     def find_file_idx(self, idx):
+        if len(self.files) == 1:
+            return 0, idx
         if idx < 0 or idx >= self.length:
             raise IndexError(f"Index {idx} is out of bounds for dataset of length {self.length}")
         
@@ -75,31 +77,55 @@ class HDF5Dataset(Dataset):
             if self.sat:
                 x, y = f['nonhrv'][data_name][...]
                 x, y = int(x), int(y)
-                first_hour = slice(str(time), str(time + timedelta(minutes=55)))
-                crop = self.sat_file["data"].sel(time=first_hour).to_numpy()[:, y - 64 : y + 64, x - 64 : x + 64, :]
+                # read from our horrible numpy method
+                crop_list = []
+                init_time = time
+                while init_time <= time + timedelta(minutes=55):
+                    dt = init_time
+                    base_folder = self.sat_folder
+                    folder_name = base_folder + dt.strftime('%y-%m-%d') + "/"
+                    file_name = dt.strftime('%H:%M:%S') + ".npz"
+                    total_name = folder_name + file_name
+                    crop_list.append(np.load(total_name)['arr_0'])
+                    init_time = init_time + timedelta(minutes=5)
+                # end reading
+                try:
+                    crop = np.stack(crop_list)
+                except:
+                    return None
+                crop = crop[:, y - 64 : y + 64, x - 64 : x + 64, :]
                 crop = torch.from_numpy(crop).permute((3, 0, 1, 2))
                 data.append(crop)
             if self.nwp:
                 x, y = f['nwp'][data_name][...][0]
-                x_nwp, y_nwp = int(x), int(y)
+                x, y = int(x), int(y)
                 T = time + timedelta(hours=1)
+                start_slice = None
+                end_slice = None
                 # Check if time is on the hour or not
                 if T.minute == 0:
-                    nwp_hours = slice(str(T - timedelta(hours=1)), str(T + timedelta(hours=4)))
+                    start_slice, end_slice = T - timedelta(hours=1), T + timedelta(hours=4)
                 else:
-                    nwp_hours = slice(str(T - timedelta(hours=1, minutes=time.minute)), str(T + timedelta(hours=4) - timedelta(minutes=time.minute)))
-                nwp_hours = slice(str(T - timedelta(hours=1, minutes=time.minute)), str(T + timedelta(hours=4) - timedelta(minutes=time.minute)))
+                    start_slice, end_slice = str(T - timedelta(hours=1, minutes=time.minute)), str(T + timedelta(hours=4) - timedelta(minutes=time.minute))   
                 nwp_features_arr = []
-                for feature in NWP_FEATURES:
-                    data2 = self.nwp_file[feature].sel(time=nwp_hours).to_numpy()
-                    if data2.shape[0] != 6 or np.isnan(data2).any():
-                        return None
-                    # 128x128 crop
-                    data2 = data2[:, y_nwp - 64 : y_nwp + 64, x_nwp - 64 : x_nwp + 64]
-                    assert data2.shape == (6, 128, 128)
-                    nwp_features_arr.append(data2)
-                nwp = np.stack(nwp_features_arr, axis=0)
-                data.append(torch.from_numpy(nwp))
+                # read from our horrible numpy method
+                crop_list = []
+                init_time = start_slice
+                while init_time <= end_slice:
+                    dt = init_time
+                    base_folder = self.nwp_folder
+                    folder_name = base_folder + dt.strftime('%y-%m-%d') + "/"
+                    file_name = dt.strftime('%H:%M:%S') + ".npz"
+                    total_name = folder_name + file_name
+                    crop_list.append(np.load(total_name)['arr_0'])
+                    init_time = init_time + timedelta(hours=1)
+                # end reading
+                try:
+                    crop = np.stack(crop_list)
+                except:
+                    return None
+                crop = crop[:, :, y - 64 : y + 64, x - 64 : x + 64]
+                data.append(torch.from_numpy(crop).permute(1, 0, 2, 3))
             if self.extra:
                 data.append(torch.from_numpy(f['extra'][data_name][...]))
             data.append(torch.from_numpy(f['y'][data_name][...]))

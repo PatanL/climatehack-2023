@@ -114,13 +114,6 @@ def worker(dates, sat_type):
 
                     # Get a 128x128 crop centred on the site over the previous hour
                     x, y = site_locations[sat_type][site]
-                    if sat_type == "hrv":
-                        sat = sat_features[:, y - 64 : y + 64, x - 64 : x + 64, 0]
-                        assert sat.shape == (12, 128, 128)
-                    else:
-                        sat = sat_features[:, y - 64 : y + 64, x - 64 : x + 64, :]
-                        sat = sat.transpose(3, 0, 1, 2)
-                        assert sat.shape == (11, 12, 128, 128)
                     sat = (x, y)
 
                     # nwp features
@@ -146,8 +139,6 @@ def worker(dates, sat_type):
                             break
 
                         # 128x128 crop
-                        data = data[:, y_nwp - 64 : y_nwp + 64, x_nwp - 64 : x_nwp + 64]
-                        assert data.shape == (6, 128, 128)
                         data = (x_nwp, y_nwp)
 
                         nwp_features_arr.append(data)
@@ -215,8 +206,6 @@ def process_data(sat_type):
                     f_extra_val.create_dataset(f'data_{i}', data=data[3], compression="lzf")
                     f_y_val.create_dataset(f'data_{i}', data=data[4], compression="lzf")
                     f_time_val.create_dataset(f'data_{i}', data=np.array([timen.timestamp()]), compression="lzf")
-                if i > 1000:
-                    break
 
 
 NWP_FEATURES = ["t_500", "clcl", "alb_rad", "tot_prec", "ww", "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000"]
