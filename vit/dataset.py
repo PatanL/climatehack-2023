@@ -1,24 +1,21 @@
 import torch
-from torch.utils.data import DataLoader, Dataset, IterableDataset
+from torch.utils.data import Dataset
 import h5py
 import hdf5plugin
-from datetime import datetime, time, timedelta
+from datetime import datetime
 import numpy as np
 from functools import lru_cache
 from tqdm import tqdm
 import xarray as xr
 import pandas as pd
-import sys
 import h5py
-import time as tfs
-import os
+
 BATCH_SIZE = 32
 NWP_FEATURES = [
     "t_500", "clcl", "alb_rad", "tot_prec", "ww",
     "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000"
 ]
-import dask
-dask.config.set(scheduler='synchronous')
+
 class HDF5Dataset(Dataset):
     def __init__(self, files, sat_folder, nwp_folder, pv, sat, nwp, extra, device="cuda"):
         self.files = files
@@ -91,8 +88,7 @@ class HDF5Dataset(Dataset):
                 return None
             # end reading
             
-            crop = torch.from_numpy(crop)
-            crop = crop[:, y - 64 : y + 64, x - 64 : x + 64, :]
+            crop = torch.from_numpy(crop[:, y - 64 : y + 64, x - 64 : x + 64, :])
             crop = crop.permute((3, 0, 1, 2))
             data.append(crop)
         if self.nwp:
@@ -109,8 +105,7 @@ class HDF5Dataset(Dataset):
             except:
                 return None
             # end readin
-            crop = torch.from_numpy(crop)
-            crop = crop[:, :, y - 64 : y + 64, x - 64 : x + 64]
+            crop = torch.from_numpy(crop[:, :, y - 64 : y + 64, x - 64 : x + 64])
             data.append(crop)
         if self.extra:
             data.append(torch.from_numpy(f['extra'][data_name][...]))
