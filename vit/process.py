@@ -55,7 +55,7 @@ MAX_SAMPLES = {
 
 
 SAMPLES_SO_FAR = {
-    1: 75087,
+    1: 0,
     2: 0,
     3: 0,
     4: 0,
