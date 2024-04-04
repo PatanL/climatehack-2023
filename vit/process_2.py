@@ -22,9 +22,10 @@ with open("./indices.json") as f:
         for data_source, locations in json.load(f).items()
     }
 import h5py
-with (
-    h5py.File(f'/data/processed_data/processed_train_all.hdf5', 'w') as f_train,
-    h5py.File(f'/data/processed_data/processed_val_all.hdf5', 'w') as f_val,
+
+def worker(df, id):
+    with (
+    h5py.File(f'/data/multiproc/processed_train_{id}.hdf5', 'w') as f_train,
     ):
         f_pv = f_train.create_group('pv')
         f_sat = f_train.create_group(sat_type)
@@ -32,16 +33,15 @@ with (
         f_extra = f_train.create_group('extra')
         f_y = f_train.create_group('y')
         f_time = f_train.create_group('time')
-        f_pv_val = f_val.create_group('pv')
-        f_sat_val = f_val.create_group(sat_type)
-        f_nwp_val = f_val.create_group('nwp')
-        f_extra_val = f_val.create_group('extra')
-        f_y_val = f_val.create_group('y')
-        f_time_val = f_val.create_group('time')
-
-        for i, row in enumerate(tqdm(df.iterrows(), total=len(df))):
+        actually_added = 0
+        for i, row in enumerate(tqdm(df.iterrows(), total=len(df), position=id)):
+            if actually_added >= 45000:
+                break
+            if i% 1000 == 0:
+                print(actually_added, i)
             try:
-                time, ss_id = row[0]
+                ss_id, time = row[1].iloc[1], row[1].iloc[0]
+                ss_id = int(ss_id)
                 site = ss_id
                 first_hour = slice(str(time), str(time + timedelta(minutes=55)))
                 pv_features = pv_data.xs(first_hour, drop_level=False)  # type: ignore
@@ -69,11 +69,28 @@ with (
                 assert extra.shape == (len(EXTRA_FEATURES),)
                 data = (site_features, sat, nwp, extra, site_targets, time)
                 timen = data[5].replace(tzinfo=timezone.utc) 
-                f_pv.create_dataset(f'data_{i}', data=data[0], compression="lzf")
-                f_sat.create_dataset(f'data_{i}', data=data[1], compression="lzf")
-                f_nwp.create_dataset(f'data_{i}', data=data[2], compression="lzf")
-                f_extra.create_dataset(f'data_{i}', data=data[3], compression="lzf")
-                f_y.create_dataset(f'data_{i}', data=data[4], compression="lzf")
-                f_time.create_dataset(f'data_{i}', data=np.array([timen.timestamp()]), compression="lzf")
-            except:
+                f_pv.create_dataset(f'data_{actually_added}', data=data[0], compression="lzf")
+                f_sat.create_dataset(f'data_{actually_added}', data=data[1], compression="lzf")
+                f_nwp.create_dataset(f'data_{actually_added}', data=data[2], compression="lzf")
+                f_extra.create_dataset(f'data_{actually_added}', data=data[3], compression="lzf")
+                f_y.create_dataset(f'data_{actually_added}', data=data[4], compression="lzf")
+                f_time.create_dataset(f'data_{actually_added}', data=np.array([timen.timestamp()]), compression="lzf")
+                actually_added += 1
+            except AssertionError:
                 continue
+            except Exception as e:
+                continue
+
+import pandas as pd
+from joblib import Parallel, delayed
+
+# create as many processes as there are CPUs on your machine
+num_proc = 8
+# calculate the chunk size as an integer
+chunk_size = int(df.shape[0]/num_proc)
+
+df.reset_index(inplace=True)
+# this solution was reworked from the above link.
+# will work even if the length of the dataframe is not evenly divisible by num_processes
+chunks = [df.iloc[df.index[i:i + chunk_size]] for i in range(0, len(df), chunk_size)]
+Parallel(n_jobs=num_proc)(delayed(worker)(chunk, i) for i, chunk in enumerate(chunks))

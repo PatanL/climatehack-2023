@@ -18,7 +18,7 @@ class Evaluator(BaseEvaluator):
         """Sets up anything required for evaluation, e.g. loading a model."""
         if not model:
             self.model = Model().to(device)
-            self.model.load_state_dict(torch.load("ExtraEmbedding_TemporalResnet2+1Combo-DeepFC-ep23.pt", map_location=device))
+            self.model.load_state_dict(torch.load("model.pt", map_location=device))
         else:
             self.model = model
         self.model.eval()
@@ -37,10 +37,10 @@ class Evaluator(BaseEvaluator):
         """
         with torch.inference_mode():
             # Select the variables you wish to use here!
-            for data in self.batch(features, variables=["t_500", "clcl", "alb_rad", "tot_prec", "ww", "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000", "pv", "hrv", "time", "orientation", "tilt"], batch_size=32):
+            for data in self.batch(features, variables=["t_500", "clcl", "alb_rad", "tot_prec", "ww", "relhum_2m", "h_snow", "aswdir_s", "td_2m", "omega_1000", "pv", "nonhrv", "time", "orientation", "tilt"], batch_size=32):
                 # Produce solar PV predictions for this batch
                 pv, hrv, times, orientation, tilt = data[-5:]
-                hrv = torch.unsqueeze(torch.from_numpy(hrv), 1)
+                hrv = torch.from_numpy(hrv).permute(0, 4, 1, 2, 3)
                 nwp = torch.from_numpy(np.stack(data[:-5])).permute(1, 0, 2, 3, 4)
                 extra = torch.from_numpy(np.stack([orientation, tilt])).permute(1, 0)
                 # print(nwp.shape, hrv.shape)
