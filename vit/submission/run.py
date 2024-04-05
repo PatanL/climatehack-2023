@@ -13,12 +13,28 @@ import numpy as np
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+
+def scale(predictions):
+    # Determine the 10th and 90th percentiles
+    low_percentile = np.percentile(predictions, 15)
+    high_percentile = np.percentile(predictions, 85)
+
+    # Define scaling factors for values below the 10th and above the 90th percentiles
+    scale_factor_low = 0.95 # Example: reduce values below 10th percentile by 20%
+    scale_factor_high = 1.05  # Example: increase values above 90th percentile by 20%
+
+    # Apply adjustments
+    adjusted_predictions = np.copy(predictions)
+    adjusted_predictions[predictions < low_percentile] *= scale_factor_low
+    adjusted_predictions[predictions > high_percentile] *= scale_factor_high
+    return adjusted_predictions
+
 class Evaluator(BaseEvaluator):
     def setup(self, model = None) -> None:
         """Sets up anything required for evaluation, e.g. loading a model."""
         if not model:
             self.model = Model().to(device)
-            self.model.load_state_dict(torch.load("model.pt", map_location=device))
+            self.model.load_state_dict(torch.load("model1.pt", map_location=device))
         else:
             self.model = model
         self.model.eval()
@@ -45,12 +61,16 @@ class Evaluator(BaseEvaluator):
                 extra = torch.from_numpy(np.stack([orientation, tilt])).permute(1, 0)
                 # print(nwp.shape, hrv.shape)
                 with torch.autocast(device_type=device):
-                    yield self.model(
+                    out = self.model(
                         torch.from_numpy(pv).to(device, dtype=torch.float),
                         hrv.to(device, dtype=torch.float),
                         nwp.to(device,dtype=torch.float),
                         extra.to(device,dtype=torch.float),
                     ).cpu()
+                    out[:, :-12] = torch.from_numpy(scale((out[:, :-12]).detach().numpy()))
+                    # out2[:, :-12] = torch.from_numpy(scale((out2[:, :-12]).detach().numpy()))
+                    yield out
+
 
 
 if __name__ == "__main__":

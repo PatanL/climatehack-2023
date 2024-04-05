@@ -12,6 +12,7 @@ def main(model):
     # Load the data (combined features & targets)
     try:
         data = h5py.File(DATA_PATH, "r")
+        # print(np.std(data["targets"][:, :-12], axis=0))
     except FileNotFoundError:
         print(f"Unable to load features at `{DATA_PATH}`")
         return

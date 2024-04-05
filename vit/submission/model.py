@@ -18,7 +18,7 @@ from torchvision.models import ViT_B_16_Weights, ViT_B_32_Weights, ViT_H_14_Weig
 from torchvision.models.video import r3d_18, r2plus1d_18
 from torchvision.models.resnet import Bottleneck
 import torchvision.models as models
-from .pvnet import ResFCNet2
+from pvnet import ResFCNet2
 
 __all__ = [
     "VisionTransformer",
@@ -656,7 +656,12 @@ class OurResnet2(torch.nn.Module):
             nn.Linear(256, 128),
             nn.Mish()
         )
-        self.final_mlp = ResFCNet2(128 + 36, 48)
+        self.final_mlp = nn.Sequential(
+            nn.Linear(128 + 36, 64),
+            nn.Mish(),
+            nn.Linear(64, 48), 
+            nn.Mish()
+        )
 
     def forward(self, pv, x, nwp, extra):
         # pv is the pv data [batch_size, samples]

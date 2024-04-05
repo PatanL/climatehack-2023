@@ -1,7 +1,7 @@
 """Linear networks used for the fusion model"""
 from torch import nn
 
-from .pvnet_abs import (
+from pvnet_abs import (
     AbstractLinearNetwork,
     ResidualLinearBlock,
     ResidualLinearBlock2,

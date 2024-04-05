@@ -1,4 +1,9 @@
-# %%
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[1]:
+
+
 from datetime import datetime, time, timedelta
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -12,18 +17,29 @@ from torchinfo import summary
 import json
 import glob
 plt.rcParams["figure.figsize"] = (20, 12)
+# %load_ext autoreload
+# %autoreload 2
 
-# %%
+
+# In[2]:
+
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(device)
 
-# %%
+
+# In[3]:
+
+
 from dataset import HDF5Dataset
-dataset = HDF5Dataset(['/data/processed_data/processed_train_1.hdf5'], "/data/satellite-nonhrv_concat/2021.zarr", "/data/weather_concat/2021.zarr", True, True, True, True)
-data_loader = DataLoader(dataset, batch_size=16, pin_memory=True, num_workers=8, shuffle=False)
+dataset = HDF5Dataset(['/data/processed_data/processed_train_1.hdf5'], "/data/sat_np/", "/data/weather_np/", True, True, True, True)
+data_loader = DataLoader(dataset, batch_size=16, pin_memory=True, num_workers=5, shuffle=False)
 print(f"train dataset len: {len(dataset)}")
 
-# %%
+
+# In[4]:
+
+
 EPOCHS = 15
 START_EPOCH = 0
 LR = 1e-3
@@ -39,13 +55,19 @@ summary(model, input_size=[(1, 12), (1, 11, 12, 128, 128), (1, 10, 6, 128, 128),
 # a = torch.randn((1, 3)).to(device)
 # model(x, y, z, a)
 
-# %%
+
+# In[5]:
+
+
 from torch.utils.tensorboard import SummaryWriter
 writer = SummaryWriter()
 def hasNan(tensor):
     return torch.isnan(tensor).any()
 
-# %%
+
+# In[6]:
+
+
 MODEL_KEY="ExtraEmbedding_TemporalResnet2+1Combo-PVResFCNet2"
 print(f"Training model key {MODEL_KEY}")
 from tqdm import tqdm
@@ -59,13 +81,15 @@ for epoch in range(EPOCHS):
         optimiser.zero_grad()
         with torch.autocast(device_type="cuda"):
             real_extra = extra[:, 2:]
-            if hasNan(pv_features) or hasNan(hrv_features) or hasNan(nwp) or hasNan(extra) or hasNan(pv_targets):
-                print(f"Found nan {i}")
-                continue
+            # if hasNan(pv_features) or hasNan(hrv_features) or hasNan(nwp) or hasNan(extra) or hasNan(pv_targets):
+            #     print(f"Found nan {i}")
+            #     continue
+            hrv_features = hrv_features.to(device,dtype=torch.float)
+            nwp = nwp.to(device,dtype=torch.float)
             predictions = model(
                 pv_features.to(device,dtype=torch.float),
-                hrv_features.to(device,dtype=torch.float),
-                nwp.to(device,dtype=torch.float),
+                hrv_features,
+                nwp,
                 real_extra.to(device,dtype=torch.float),
             )
             # print(pv_features.shape, hrv_features.shape, nwp.shape, real_extra.shape)
@@ -94,15 +118,23 @@ for epoch in range(EPOCHS):
     torch.save(model.state_dict(), f"./cpts/{MODEL_KEY}-ep{START_EPOCH + epoch + 1}.pt")
     print("Saved model!")
 
-# %%
+
+# In[ ]:
 
 
-# %%
+
+
+
+# In[ ]:
+
+
 for i in range(100):
     pv_features, hrv_features, weather_features, extra, pv_targets = dataset[i]
     print(hrv_features.shape, weather_features.shape)
 
-# %%
+
+# In[ ]:
+
 
 
 
